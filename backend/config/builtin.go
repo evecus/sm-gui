@@ -422,6 +422,7 @@ func buildBuiltinMihomo(opts BuiltinOptions, n *node.Node) ([]byte, error) {
 		"proxies":             []interface{}{proxy},
 		"proxy-groups":        []interface{}{map[string]interface{}{"name": mihomoGroupName, "type": "select", "proxies": []interface{}{mihomoProxyName, "DIRECT"}}},
 		"dns":                 buildBuiltinMihomoDNS(opts.Mode),
+		"sniffer":             buildBuiltinMihomoSniffer(),
 	}
 	appendBuiltinMihomoMixed(cfg, opts)
 	if opts.TunEnabled {
@@ -434,8 +435,9 @@ func buildBuiltinMihomo(opts BuiltinOptions, n *node.Node) ([]byte, error) {
 // buildBuiltinMihomoDNS redir-host DNS + nameserver-policy 分流（mihomo 写法）。
 //   - 绕过大陆：默认 nameserver = 两个代理 DNS（#PROXY 经代理组出站，避免 UDP 53 直连被污染），
 //     直连域名规则集（geosite-cn / geosite-private）→ 两个直连 DNS；
-//   - GFW列表 / 全局：默认 nameserver = 两个直连 DNS，
-//     代理域名规则集（geosite-gfw / greatfire / google）→ 两个代理 DNS。
+//   - GFW列表：默认 nameserver = 两个直连 DNS，
+//     代理域名规则集（geosite-gfw / greatfire / google）→ 两个代理 DNS；
+//   - 全局：默认 nameserver = 两个代理 DNS（全部流量走代理），无 policy。
 // fake-ip 模式后续连同 sing-box 一起做。
 func buildBuiltinMihomoDNS(mode string) map[string]interface{} {
 	directDNS := []interface{}{"223.5.5.5", "119.29.29.29"}
@@ -463,12 +465,29 @@ func buildBuiltinMihomoDNS(mode string) map[string]interface{} {
 			"rule-set:geosite-greatfire": proxyDNS,
 		}
 	case ModeGlobal:
-		// 全部走代理，无代理域名规则集，默认直连 DNS 即可
+		// 全部走代理：默认 nameserver 也用代理 DNS，无代理域名规则集可写进策略
+		dns["nameserver"] = proxyDNS
 	}
 	if len(policy) > 0 {
 		dns["nameserver-policy"] = policy
 	}
 	return dns
+}
+
+// buildBuiltinMihomoSniffer 域名嗅探（三种模式固定）：让 TUN/redir-host 下的
+// 连接获得真实域名，域名类规则（RULE-SET geosite-* 等）才能命中。
+func buildBuiltinMihomoSniffer() map[string]interface{} {
+	return map[string]interface{}{
+		"enable": true,
+		"sniff": map[string]interface{}{
+			"HTTP": map[string]interface{}{
+				"ports":                []interface{}{80, "8080-8880"},
+				"override-destination": true,
+			},
+			"TLS":  map[string]interface{}{"ports": []interface{}{443, 8443}},
+			"QUIC": map[string]interface{}{"ports": []interface{}{443, 8443}},
+		},
+	}
 }
 
 // buildBuiltinMihomoTun TUN 配置（对齐 SetTunMihomo 写入的字段）。

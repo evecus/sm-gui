@@ -70,8 +70,9 @@ func assertMihomoDNS(t *testing.T, mode string, dnsV interface{}) {
 			t.Errorf("[%s] blacklist 不应把 cn 规则集写进 DNS 策略", mode)
 		}
 	case ModeGlobal:
-		if dns["nameserver"].([]interface{})[0] != direct[0] {
-			t.Errorf("[%s] nameserver 应为直连 DNS", mode)
+		// 全部走代理：默认 nameserver 也是代理 DNS
+		if dns["nameserver"].([]interface{})[0] != proxy[0] {
+			t.Errorf("[%s] nameserver 应为代理 DNS", mode)
 		}
 		if hasPolicy {
 			t.Errorf("[%s] global 不应有 nameserver-policy", mode)
@@ -387,6 +388,11 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		}
 		if cfg["external-ui"] != "/run/ui" {
 			t.Errorf("[%s] external-ui = %v, want /run/ui", c.mode, cfg["external-ui"])
+		}
+		// sniffer（三种模式固定）
+		sn, ok := cfg["sniffer"].(map[string]interface{})
+		if !ok || sn["enable"] != true {
+			t.Errorf("[%s] sniffer 应存在且启用", c.mode)
 		}
 		// DNS：redir-host + nameserver-policy 分流
 		assertMihomoDNS(t, c.mode, cfg["dns"])
