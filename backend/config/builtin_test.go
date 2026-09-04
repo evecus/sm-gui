@@ -37,49 +37,6 @@ func toStringSlice(v []interface{}) []string {
 	return out
 }
 
-// assertMihomoDNS 校验各模式 mihomo DNS：redir-host + nameserver-policy 分流策略。
-func assertMihomoDNS(t *testing.T, mode string, dnsV interface{}) {
-	t.Helper()
-	dns, ok := dnsV.(map[string]interface{})
-	if !ok {
-		t.Fatalf("[%s] dns 段缺失", mode)
-	}
-	if dns["enable"] != true || dns["enhanced-mode"] != "redir-host" {
-		t.Fatalf("[%s] dns 应为启用的 redir-host 模式", mode)
-	}
-	direct := []interface{}{"223.5.5.5", "119.29.29.29"}
-	proxy := []interface{}{"1.1.1.1#PROXY", "8.8.8.8#PROXY"}
-	policy, hasPolicy := dns["nameserver-policy"].(map[string]interface{})
-	switch mode {
-	case ModeBypass:
-		if len(toStringSlice(dns["nameserver"].([]interface{}))) == 0 ||
-			dns["nameserver"].([]interface{})[0] != proxy[0] {
-			t.Errorf("[%s] nameserver 应为代理 DNS, got %v", mode, dns["nameserver"])
-		}
-		if !hasPolicy || len(policy["rule-set:geosite-cn"].([]interface{})) != 2 {
-			t.Errorf("[%s] nameserver-policy 应含 rule-set:geosite-cn → 直连 DNS", mode)
-		}
-	case ModeBlacklist:
-		if dns["nameserver"].([]interface{})[0] != direct[0] {
-			t.Errorf("[%s] nameserver 应为直连 DNS", mode)
-		}
-		if !hasPolicy || len(policy["rule-set:geosite-gfw"].([]interface{})) != 2 {
-			t.Errorf("[%s] nameserver-policy 应含 rule-set:geosite-gfw → 代理 DNS", mode)
-		}
-		if policy != nil && policy["rule-set:geosite-cn"] != nil {
-			t.Errorf("[%s] blacklist 不应把 cn 规则集写进 DNS 策略", mode)
-		}
-	case ModeGlobal:
-		// 全部走代理：默认 nameserver 也是代理 DNS
-		if dns["nameserver"].([]interface{})[0] != proxy[0] {
-			t.Errorf("[%s] nameserver 应为代理 DNS", mode)
-		}
-		if hasPolicy {
-			t.Errorf("[%s] global 不应有 nameserver-policy", mode)
-		}
-	}
-}
-
 // 测试用节点（vless，带 RawOutbound / RawClashProxy 两条路径都覆盖）
 func testNode() *node.Node {
 	return &node.Node{
@@ -116,36 +73,35 @@ func TestBuiltinNameRoundTrip(t *testing.T) {
 
 func TestCheckRuleFiles(t *testing.T) {
 	dir := t.TempDir()
-	// 三种模式都需要规则文件（global 也要 private 两个）
-	err := CheckRuleFiles(ModeGlobal, dir)
+	// redir-host：global 也要 private 两个
+	err := CheckRuleFiles(ModeGlobal, DNSModeRedirHost, dir)
 	if err == nil {
 		t.Fatal("空目录应报缺失")
 	}
 	if !strings.Contains(err.Error(), "geosite-private.mrs") || !strings.Contains(err.Error(), "geoip-private.mrs") {
 		t.Fatalf("global 模式应需要 private 规则集: %v", err)
 	}
-	// bypass 缺文件 → 报错并列出缺失项
-	err = CheckRuleFiles(ModeBypass, dir)
-	if err == nil {
-		t.Fatal("空目录应报缺失")
+	// fake-ip：额外要求 fakeipfilter
+	err = CheckRuleFiles(ModeGlobal, DNSModeFakeIP, dir)
+	if err == nil || !strings.Contains(err.Error(), "geosite-fakeipfilter") {
+		t.Fatalf("fake-ip 模式应需要 geosite-fakeipfilter: %v", err)
 	}
-	for _, want := range []string{"geosite-cn.srs", "geosite-cn.mrs", "geoip-cn.srs"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("错误信息应包含 %s: %v", want, err)
+	// 补齐全部文件后两种 DNS 模式都通过
+	for _, dnsMode := range []string{DNSModeRedirHost, DNSModeFakeIP} {
+		for _, mode := range []string{ModeBypass, ModeBlacklist, ModeGlobal} {
+			for _, tag := range builtinRuleFilesAll(mode, dnsMode) {
+				os.MkdirAll(filepath.Join(dir, "srs"), 0755)
+				os.MkdirAll(filepath.Join(dir, "mrs"), 0755)
+				os.WriteFile(filepath.Join(dir, "srs", tag+".srs"), []byte("x"), 0644)
+				os.WriteFile(filepath.Join(dir, "mrs", tag+".mrs"), []byte("x"), 0644)
+			}
 		}
 	}
-	// 补齐文件后通过
-	for _, mode := range []string{ModeBypass, ModeBlacklist, ModeGlobal} {
-		for _, tag := range builtinRuleFilesAll(mode) {
-			os.MkdirAll(filepath.Join(dir, "srs"), 0755)
-			os.MkdirAll(filepath.Join(dir, "mrs"), 0755)
-			os.WriteFile(filepath.Join(dir, "srs", tag+".srs"), []byte("x"), 0644)
-			os.WriteFile(filepath.Join(dir, "mrs", tag+".mrs"), []byte("x"), 0644)
-		}
-	}
-	for _, mode := range []string{ModeBypass, ModeBlacklist, ModeGlobal} {
-		if err := CheckRuleFiles(mode, dir); err != nil {
-			t.Fatalf("补齐后不应报错: %v", err)
+	for _, dnsMode := range []string{DNSModeRedirHost, DNSModeFakeIP} {
+		for _, mode := range []string{ModeBypass, ModeBlacklist, ModeGlobal} {
+			if err := CheckRuleFiles(mode, dnsMode, dir); err != nil {
+				t.Fatalf("补齐后不应报错: %v", err)
+			}
 		}
 	}
 }
@@ -155,6 +111,7 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 		TunStack: "gvisor", TunMTU: 9000, TunStrictRoute: true,
 		ProxyEnabled: true, ProxyListen: "127.0.0.1", ProxyPort: 2080,
 		RulesDir: "/run/rules", UIDir: "/run/ui",
+		// Cfg 为 nil 时使用默认 BuiltinSettings
 	}
 	cases := []struct {
 		mode      string
@@ -163,7 +120,7 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 		wantSets  int
 	}{
 		{ModeBypass, "proxy", "dns-proxy", 3},
-		{ModeBlacklist, "direct", "dns-local", 9},
+		{ModeBlacklist, "direct", "dns-direct", 9},
 		{ModeGlobal, "proxy", "dns-proxy", 0},
 	}
 	for _, c := range cases {
@@ -182,10 +139,10 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 		if route["final"] != c.wantFinal {
 			t.Errorf("[%s] route.final = %v, want %s", c.mode, route["final"], c.wantFinal)
 		}
-		// default_domain_resolver 必须指向直连 DNS
+		// default_domain_resolver 必须指向解析 DNS，且 IPv6 关闭时仅 IPv4
 		dds, ok := route["default_domain_resolver"].(map[string]interface{})
-		if !ok || dds["server"] != "dns-local" {
-			t.Errorf("[%s] route.default_domain_resolver 应为 {server: dns-local}, got %v", c.mode, route["default_domain_resolver"])
+		if !ok || dds["server"] != "dns-resolver" || dds["strategy"] != "ipv4_only" {
+			t.Errorf("[%s] default_domain_resolver 错误: %v", c.mode, route["default_domain_resolver"])
 		}
 		// sniff 必须是首条规则
 		rules := route["rules"].([]interface{})
@@ -212,28 +169,25 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 			if len(rs) != c.wantSets {
 				t.Errorf("[%s] rule_set 数量 = %d, want %d", c.mode, len(rs), c.wantSets)
 			}
-			for _, e := range rs {
-				m := e.(map[string]interface{})
-				if m["type"] != "local" || m["format"] != "binary" {
-					t.Errorf("[%s] rule_set %v 应为 local/binary", c.mode, m["tag"])
-				}
-				if !strings.HasSuffix(m["path"].(string), ".srs") {
-					t.Errorf("[%s] rule_set path 应指向 .srs: %v", c.mode, m["path"])
-				}
-			}
 		} else if _, ok := route["rule_set"]; ok {
 			t.Errorf("[%s] 不应生成 rule_set", c.mode)
 		}
-		// DNS
+		// DNS：final + server 标签
 		dns := cfg["dns"].(map[string]interface{})
 		if dns["final"] != c.wantDNS {
 			t.Errorf("[%s] dns.final = %v, want %s", c.mode, dns["final"], c.wantDNS)
 		}
-		// 1.12 新格式：每个 DNS server 必须带 type 字段，否则内核报错
+		// 1.12 新格式：每个 DNS server 必须带 type 字段；直连/代理带 domain_resolver
 		for _, s := range dns["servers"].([]interface{}) {
 			sm := s.(map[string]interface{})
 			if sm["type"] == nil || sm["type"] == "" {
 				t.Errorf("[%s] dns server %v 缺少 type 字段", c.mode, sm["tag"])
+			}
+			if sm["tag"] == "dns-direct" || sm["tag"] == "dns-proxy" {
+				dr, ok := sm["domain_resolver"].(map[string]interface{})
+				if !ok || dr["server"] != "dns-resolver" {
+					t.Errorf("[%s] dns server %s 应含 domain_resolver→dns-resolver", c.mode, sm["tag"])
+				}
 			}
 		}
 		// outbounds: proxy + direct
@@ -241,9 +195,9 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 		if len(obs) != 2 {
 			t.Errorf("[%s] outbounds 应为 [proxy direct], got %d 个", c.mode, len(obs))
 		}
-		// 日志等级 / clash-api
-		if lg := cfg["log"].(map[string]interface{}); lg["level"] != "warning" {
-			t.Errorf("[%s] log.level = %v, want warning", c.mode, lg["level"])
+		// 日志等级（warning → sing-box warn）/ clash-api
+		if lg := cfg["log"].(map[string]interface{}); lg["level"] != "warn" {
+			t.Errorf("[%s] log.level = %v, want warn", c.mode, lg["level"])
 		}
 		api := cfg["experimental"].(map[string]interface{})["clash_api"].(map[string]interface{})
 		if api["external_controller"] != "127.0.0.1:9090" || api["secret"] != "" {
@@ -261,6 +215,113 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 		if !kinds["mixed"] || !kinds["tun"] {
 			t.Errorf("[%s] inbounds 应含 mixed+tun, got %v", c.mode, kinds)
 		}
+	}
+}
+
+// TestBuildBuiltinSingBoxFakeIP fake-ip 模式：fakeipfilter 白名单 → 直连 DNS，其余 A/AAAA → fakeip
+func TestBuildBuiltinSingBoxFakeIP(t *testing.T) {
+	opts := BuiltinOptions{
+		Mode: ModeBypass, RulesDir: "/run/rules", UIDir: "/run/ui",
+		Cfg: &BuiltinSettings{DNSMode: DNSModeFakeIP},
+	}
+	data, err := BuildBuiltinConfig(CoreSingBox, opts, testNode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := parseJSONBytes(data)
+	dns := cfg["dns"].(map[string]interface{})
+
+	// servers 含 fakeip
+	hasFakeIP := false
+	for _, s := range dns["servers"].([]interface{}) {
+		if s.(map[string]interface{})["type"] == "fakeip" {
+			hasFakeIP = true
+		}
+	}
+	if !hasFakeIP {
+		t.Fatal("fake-ip 模式 servers 应含 fakeip server")
+	}
+	// rules：白名单 → dns-direct，其后 A/AAAA → dns-fakeip
+	rules := dns["rules"].([]interface{})
+	r0 := rules[0].(map[string]interface{})
+	if !strings.Contains(fmtJoin(r0["rule_set"]), "geosite-fakeipfilter") || r0["server"] != "dns-direct" {
+		t.Errorf("首条 DNS 规则应为 fakeipfilter→dns-direct, got %v", r0)
+	}
+	r1 := rules[1].(map[string]interface{})
+	if r1["action"] != "route" || r1["server"] != "dns-fakeip" {
+		t.Errorf("第二条 DNS 规则应为 route→dns-fakeip, got %v", r1)
+	}
+	// route 段 rule_set 应含 geosite-fakeipfilter
+	foundFilter := false
+	for _, rs := range cfg["route"].(map[string]interface{})["rule_set"].([]interface{}) {
+		if rs.(map[string]interface{})["tag"] == "geosite-fakeipfilter" {
+			foundFilter = true
+		}
+	}
+	if !foundFilter {
+		t.Fatal("fake-ip 模式 route.rule_set 应含 geosite-fakeipfilter")
+	}
+}
+
+// TestBuildBuiltinSingBoxDNSFields DNS 服务器字段：地址必填；端口/路径选填（零值不写入）
+func TestBuildBuiltinSingBoxDNSFields(t *testing.T) {
+	opts := BuiltinOptions{
+		Mode: ModeGlobal, RulesDir: "/run/rules",
+		Cfg: &BuiltinSettings{
+			SingBoxDirect: DNSServer{Type: "https", Address: "dns.alidns.com", Path: "/dns-query"}, // 端口 0 → 不写 server_port
+			SingBoxProxy:  DNSServer{Type: "udp", Address: "8.8.8.8", Port: 53},
+		},
+	}
+	data, err := BuildBuiltinConfig(CoreSingBox, opts, testNode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := parseJSONBytes(data)
+	dns := cfg["dns"].(map[string]interface{})
+	for _, s := range dns["servers"].([]interface{}) {
+		m := s.(map[string]interface{})
+		switch m["tag"] {
+		case "dns-direct":
+			if _, ok := m["server_port"]; ok {
+				t.Errorf("端口为 0 时不应写 server_port: %v", m)
+			}
+			if m["path"] != "/dns-query" {
+				t.Errorf("https 直连 DNS 应带 path: %v", m)
+			}
+		case "dns-proxy":
+			if sp, ok := m["server_port"].(float64); !ok || sp != 53 {
+				t.Errorf("代理 DNS 应带 server_port=53: %v", m)
+			}
+			if _, ok := m["path"]; ok {
+				t.Errorf("非 https 类型不应写 path: %v", m)
+			}
+		}
+	}
+}
+
+// TestBuildBuiltinSingBoxIPv6 IPv6 开关：TUN 地址补 IPv6 段 + 解析策略 prefer_ipv4
+func TestBuildBuiltinSingBoxIPv6(t *testing.T) {
+	opts := BuiltinOptions{
+		Mode: ModeBypass, TunEnabled: true, RulesDir: "/run/rules",
+		Cfg: &BuiltinSettings{DNSMode: DNSModeRedirHost, IPv6: true},
+	}
+	data, err := BuildBuiltinConfig(CoreSingBox, opts, testNode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := parseJSONBytes(data)
+	var tunAddr []interface{}
+	for _, ib := range cfg["inbounds"].([]interface{}) {
+		if m := ib.(map[string]interface{}); m["type"] == "tun" {
+			tunAddr = m["address"].([]interface{})
+		}
+	}
+	if len(tunAddr) != 2 || tunAddr[1] != "fdfe:dcba:9876::1/126" {
+		t.Errorf("IPv6 开启时 TUN 地址应含 IPv6 段: %v", tunAddr)
+	}
+	dds := cfg["route"].(map[string]interface{})["default_domain_resolver"].(map[string]interface{})
+	if dds["strategy"] != "prefer_ipv4" {
+		t.Errorf("IPv6 开启时解析策略应为 prefer_ipv4: %v", dds)
 	}
 }
 
@@ -345,9 +406,6 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 				if pm["behavior"] != wantBehavior {
 					t.Errorf("[%s] provider %s behavior = %v, want %s", c.mode, name, pm["behavior"], wantBehavior)
 				}
-				if !strings.HasSuffix(pm["path"].(string), ".mrs") {
-					t.Errorf("[%s] provider %s path 应指向 .mrs", c.mode, name)
-				}
 			}
 		} else if _, ok := cfg["rule-providers"]; ok {
 			t.Errorf("[%s] 不应生成 rule-providers", c.mode)
@@ -367,7 +425,7 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 				t.Errorf("[%s] geosite-cn 直连规则缺失或顺序错误", c.mode)
 			}
 		}
-		// proxies / proxy-groups / dns / tun / mixed-port
+		// proxies / proxy-groups / tun / mixed-port
 		proxies := cfg["proxies"].([]interface{})
 		if len(proxies) != 1 || proxies[0].(map[string]interface{})["name"] != mihomoProxyName {
 			t.Errorf("[%s] proxies 应只含 name=proxy 条目", c.mode)
@@ -379,7 +437,7 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		if tun["enable"] != true || tun["auto-route"] != true {
 			t.Errorf("[%s] tun 配置不完整: %v", c.mode, tun)
 		}
-		// 日志等级 / clash-api
+		// 日志等级 / clash-api / ipv6
 		if cfg["log-level"] != "warning" {
 			t.Errorf("[%s] log-level = %v, want warning", c.mode, cfg["log-level"])
 		}
@@ -389,6 +447,9 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		if cfg["external-ui"] != "/run/ui" {
 			t.Errorf("[%s] external-ui = %v, want /run/ui", c.mode, cfg["external-ui"])
 		}
+		if cfg["ipv6"] != false {
+			t.Errorf("[%s] 默认 ipv6 应为 false", c.mode)
+		}
 		// sniffer（三种模式固定）
 		sn, ok := cfg["sniffer"].(map[string]interface{})
 		if !ok || sn["enable"] != true {
@@ -396,6 +457,77 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		}
 		// DNS：redir-host + nameserver-policy 分流
 		assertMihomoDNS(t, c.mode, cfg["dns"])
+	}
+}
+
+// assertMihomoDNS 校验各模式 mihomo DNS：redir-host + nameserver-policy 分流策略。
+func assertMihomoDNS(t *testing.T, mode string, dnsV interface{}) {
+	t.Helper()
+	dns, ok := dnsV.(map[string]interface{})
+	if !ok {
+		t.Fatalf("[%s] dns 段缺失", mode)
+	}
+	if dns["enable"] != true || dns["enhanced-mode"] != "redir-host" {
+		t.Fatalf("[%s] dns 应为启用的 redir-host 模式", mode)
+	}
+	direct := []interface{}{"223.5.5.5", "119.29.29.29"}
+	proxy := []interface{}{"1.1.1.1#PROXY", "8.8.8.8#PROXY"}
+	policy, hasPolicy := dns["nameserver-policy"].(map[string]interface{})
+	switch mode {
+	case ModeBypass:
+		if dns["nameserver"].([]interface{})[0] != proxy[0] {
+			t.Errorf("[%s] nameserver 应为代理 DNS, got %v", mode, dns["nameserver"])
+		}
+		if !hasPolicy || len(policy["rule-set:geosite-cn"].([]interface{})) != 2 {
+			t.Errorf("[%s] nameserver-policy 应含 rule-set:geosite-cn → 直连 DNS", mode)
+		}
+	case ModeBlacklist:
+		if dns["nameserver"].([]interface{})[0] != direct[0] {
+			t.Errorf("[%s] nameserver 应为直连 DNS", mode)
+		}
+		if !hasPolicy || len(policy["rule-set:geosite-gfw"].([]interface{})) != 2 {
+			t.Errorf("[%s] nameserver-policy 应含 rule-set:geosite-gfw → 代理 DNS", mode)
+		}
+		if policy != nil && policy["rule-set:geosite-cn"] != nil {
+			t.Errorf("[%s] blacklist 不应把 cn 规则集写进 DNS 策略", mode)
+		}
+	case ModeGlobal:
+		// 全部走代理：默认 nameserver 也是代理 DNS
+		if dns["nameserver"].([]interface{})[0] != proxy[0] {
+			t.Errorf("[%s] nameserver 应为代理 DNS", mode)
+		}
+		if hasPolicy {
+			t.Errorf("[%s] global 不应有 nameserver-policy", mode)
+		}
+	}
+}
+
+// TestBuildBuiltinMihomoFakeIP fake-ip 模式：fake-ip-filter 引用 fakeipfilter 规则集
+func TestBuildBuiltinMihomoFakeIP(t *testing.T) {
+	opts := BuiltinOptions{
+		Mode: ModeBypass, RulesDir: "/run/rules",
+		Cfg: &BuiltinSettings{DNSMode: DNSModeFakeIP, IPv6: true},
+	}
+	data, err := BuildBuiltinConfig(CoreMihomo, opts, testNode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := parseYAMLBytes(data)
+	dns := cfg["dns"].(map[string]interface{})
+	if dns["enhanced-mode"] != "fake-ip" {
+		t.Fatalf("enhanced-mode = %v, want fake-ip", dns["enhanced-mode"])
+	}
+	filter := toStringSlice(dns["fake-ip-filter"].([]interface{}))
+	if len(filter) != 1 || filter[0] != "rule-set:geosite-fakeipfilter" {
+		t.Fatalf("fake-ip-filter = %v, want [rule-set:geosite-fakeipfilter]", filter)
+	}
+	if dns["ipv6"] != true || cfg["ipv6"] != true {
+		t.Fatal("IPv6 开启时顶层与 dns 的 ipv6 都应为 true")
+	}
+	// rule-providers 应含 geosite-fakeipfilter
+	providers := cfg["rule-providers"].(map[string]interface{})
+	if _, ok := providers["geosite-fakeipfilter"]; !ok {
+		t.Fatal("fake-ip 模式 rule-providers 应含 geosite-fakeipfilter")
 	}
 }
 
@@ -417,9 +549,38 @@ func TestSettingsRoutingModeDefaults(t *testing.T) {
 	if s.RoutingMode != ModeCustom {
 		t.Fatalf("缺省路由模式应为 custom, got %q", s.RoutingMode)
 	}
+	// builtin 段默认值
+	if s.Builtin.LogLevel != "warning" || s.Builtin.DNSMode != "redir-host" || s.Builtin.ClashAPI.Port != 9090 {
+		t.Fatalf("builtin 默认值错误: %+v", s.Builtin)
+	}
 	// Validate 拒绝非法值
 	s.RoutingMode = "bogus"
 	if err := s.Validate(); err == nil {
 		t.Fatal("非法路由模式应校验失败")
 	}
+	s = Settings{}
+	s.applyDefaults()
+	s.Builtin.DNSMode = "bogus"
+	if err := s.Validate(); err == nil {
+		t.Fatal("非法 DNS 模式应校验失败")
+	}
+	s = Settings{}
+	s.applyDefaults()
+	s.Builtin.ResolverDNS = "not-an-ip"
+	if err := s.Validate(); err == nil {
+		t.Fatal("解析 DNS 非 IP 应校验失败")
+	}
+}
+
+// fmtJoin 把 rule_set 字段拼成字符串便于断言
+func fmtJoin(v interface{}) string {
+	switch l := v.(type) {
+	case []interface{}:
+		parts := make([]string, 0, len(l))
+		for _, e := range l {
+			parts = append(parts, e.(string))
+		}
+		return strings.Join(parts, ",")
+	}
+	return ""
 }

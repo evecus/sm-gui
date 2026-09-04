@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,10 +60,57 @@ type Settings struct {
 	LogMaxLines    int `json:"log_max_lines"`    // 运行日志最大保留行数
 	PollIntervalMs int `json:"poll_interval_ms"` // 前端状态轮询间隔(毫秒)
 
+	// 内置路由模式的可配置参数（合成 run 配置时使用，custom 模式不涉及）
+	Builtin BuiltinSettings `json:"builtin"`
+
 	// 记录 JSON 文件中 bool 字段是否真实存在（不序列化），
 	// 用于区分"旧文件缺字段"与"用户显式关闭"。
 	exitDisableProxySet bool
 	tunStrictRouteSet   bool
+}
+
+// DNSServer sing-box DNS 服务器（类型/地址/端口/路径）。
+// 地址必填；端口、路径选填，零值时不写入生成的配置。
+type DNSServer struct {
+	Type    string `json:"type"`    // tcp | udp | tls | https | quic
+	Address string `json:"address"` // IP 或域名（tls/https 建议域名）
+	Port    int    `json:"port"`    // 0 = 按类型默认端口
+	Path    string `json:"path"`    // https 类型的 URL 路径
+}
+
+// ClashAPIConfig clash-api 监听配置（双内核共用）。
+type ClashAPIConfig struct {
+	Listen string `json:"listen"` // 127.0.0.1 | 0.0.0.0
+	Port   int    `json:"port"`
+	Secret string `json:"secret"`
+}
+
+// BuiltinSettings 内置路由模式可配置参数（settings.json 的 builtin 段）。
+// 默认值即此前写死的值，旧 settings.json 缺段时自动补默认。
+type BuiltinSettings struct {
+	LogLevel      string         `json:"log_level"` // debug | info | warning | error
+	DNSMode       string         `json:"dns_mode"`  // redir-host | fake-ip
+	IPv6          bool           `json:"ipv6"`
+	ResolverDNS   string         `json:"resolver_dns"` // 解析 DNS 服务器（必须是 IP）；mihomo 对应 default_nameserver
+	ClashAPI      ClashAPIConfig `json:"clash_api"`
+	SingBoxDirect DNSServer      `json:"singbox_direct"` // sing-box 直连 DNS
+	SingBoxProxy  DNSServer      `json:"singbox_proxy"`  // sing-box 代理 DNS
+	MihomoDirect  []string       `json:"mihomo_direct"`  // mihomo 直连 DNS（两个）
+	MihomoProxy   []string       `json:"mihomo_proxy"`   // mihomo 代理 DNS（两个，生成时自动加 #PROXY）
+}
+
+// DefaultBuiltin 返回内置路由参数的默认设置（与写死版本行为一致）。
+func DefaultBuiltin() BuiltinSettings {
+	return BuiltinSettings{
+		LogLevel:      "warning",
+		DNSMode:       "redir-host",
+		ResolverDNS:   "223.5.5.5",
+		ClashAPI:      ClashAPIConfig{Listen: "127.0.0.1", Port: 9090},
+		SingBoxDirect: DNSServer{Type: "udp", Address: "223.5.5.5", Port: 53},
+		SingBoxProxy:  DNSServer{Type: "udp", Address: "8.8.8.8", Port: 53},
+		MihomoDirect:  []string{"223.5.5.5", "119.29.29.29"},
+		MihomoProxy:   []string{"1.1.1.1", "8.8.8.8"},
+	}
 }
 
 // Defaults 返回一份全新默认设置。
@@ -85,7 +133,22 @@ func Defaults() Settings {
 }
 
 // Normalize 为零值字段补默认值（供外部包在保存前调用）。
-func (s *Settings) Normalize() { s.applyDefaults() }
+func (s *Settings) Normalize() {
+	s.applyDefaults()
+	// mihomo DNS 列表去掉空白项
+	s.Builtin.MihomoDirect = trimNonEmpty(s.Builtin.MihomoDirect)
+	s.Builtin.MihomoProxy = trimNonEmpty(s.Builtin.MihomoProxy)
+}
+
+func trimNonEmpty(ss []string) []string {
+	out := make([]string, 0, len(ss))
+	for _, v := range ss {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 // applyDefaults 为零值字段补默认值（兼容旧版 settings.json）。
 func (s *Settings) applyDefaults() {
@@ -122,6 +185,36 @@ func (s *Settings) applyDefaults() {
 	}
 	if s.PollIntervalMs <= 0 {
 		s.PollIntervalMs = def.PollIntervalMs
+	}
+	// 内置路由参数逐字段补默认
+	b := &s.Builtin
+	d := DefaultBuiltin()
+	if b.LogLevel == "" {
+		b.LogLevel = d.LogLevel
+	}
+	if b.DNSMode == "" {
+		b.DNSMode = d.DNSMode
+	}
+	if b.ResolverDNS == "" {
+		b.ResolverDNS = d.ResolverDNS
+	}
+	if b.ClashAPI.Listen == "" {
+		b.ClashAPI.Listen = d.ClashAPI.Listen
+	}
+	if b.ClashAPI.Port == 0 {
+		b.ClashAPI.Port = d.ClashAPI.Port
+	}
+	if b.SingBoxDirect.Type == "" && b.SingBoxDirect.Address == "" {
+		b.SingBoxDirect = d.SingBoxDirect
+	}
+	if b.SingBoxProxy.Type == "" && b.SingBoxProxy.Address == "" {
+		b.SingBoxProxy = d.SingBoxProxy
+	}
+	if len(b.MihomoDirect) == 0 {
+		b.MihomoDirect = d.MihomoDirect
+	}
+	if len(b.MihomoProxy) == 0 {
+		b.MihomoProxy = d.MihomoProxy
 	}
 	// bool 零值为 false，但 ExitDisableProxy / TunStrictRoute 的默认值是 true。
 	// 由于旧文件中不存在这两个字段，无法区分"显式关闭"与"未设置"，
@@ -189,6 +282,52 @@ func (s *Settings) Validate() error {
 	}
 	if s.PollIntervalMs < 500 || s.PollIntervalMs > 60000 {
 		return fmt.Errorf("轮询间隔必须在 500-60000 毫秒之间")
+	}
+	// 内置路由参数
+	switch s.Builtin.LogLevel {
+	case "debug", "info", "warning", "error":
+	default:
+		return fmt.Errorf("日志等级必须是 debug / info / warning / error")
+	}
+	switch s.Builtin.DNSMode {
+	case "redir-host", "fake-ip":
+	default:
+		return fmt.Errorf("DNS 模式必须是 redir-host / fake-ip")
+	}
+	if net.ParseIP(strings.TrimSpace(s.Builtin.ResolverDNS)) == nil {
+		return fmt.Errorf("解析 DNS 服务器必须是 IP 地址")
+	}
+	if s.Builtin.ClashAPI.Listen != "127.0.0.1" && s.Builtin.ClashAPI.Listen != "0.0.0.0" {
+		return fmt.Errorf("clash-api 监听地址必须是 127.0.0.1 / 0.0.0.0")
+	}
+	if s.Builtin.ClashAPI.Port < 1 || s.Builtin.ClashAPI.Port > 65535 {
+		return fmt.Errorf("clash-api 端口必须在 1-65535 之间")
+	}
+	for _, ds := range []struct {
+		name string
+		svr  DNSServer
+	}{{"直连 DNS", s.Builtin.SingBoxDirect}, {"代理 DNS", s.Builtin.SingBoxProxy}} {
+		switch ds.svr.Type {
+		case "tcp", "udp", "tls", "https", "quic":
+		default:
+			return fmt.Errorf("sing-box %s 类型必须是 tcp / udp / tls / https / quic", ds.name)
+		}
+		if strings.TrimSpace(ds.svr.Address) == "" {
+			return fmt.Errorf("sing-box %s 地址不能为空", ds.name)
+		}
+	}
+	for _, l := range []struct {
+		name string
+		list []string
+	}{{"直连 DNS", s.Builtin.MihomoDirect}, {"代理 DNS", s.Builtin.MihomoProxy}} {
+		if len(l.list) == 0 {
+			return fmt.Errorf("mihomo %s 至少填写一个", l.name)
+		}
+		for _, v := range l.list {
+			if strings.TrimSpace(v) == "" {
+				return fmt.Errorf("mihomo %s 不能为空", l.name)
+			}
+		}
 	}
 	return nil
 }

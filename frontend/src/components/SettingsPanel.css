@@ -47,3 +47,65 @@
 .settings-panel-footer .settings-reset {
   margin-right: auto;
 }
+
+/* ─── 顶部视图切换（程序 / 配置） ─────────────────────────────────────── */
+
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.settings-tab-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  background: transparent;
+  color: var(--text-dim, inherit);
+  padding: 7px 22px;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.settings-tab-btn:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.settings-tab-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-weight: 600;
+}
+
+/* 配置视图里的内联小组件行 */
+.settings-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.settings-inline .modal-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-inline .modal-input.num {
+  flex: 0 0 84px;
+}
+
+.settings-subsection {
+  margin-left: 12px;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+

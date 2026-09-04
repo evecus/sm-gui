@@ -184,7 +184,7 @@ func (a *App) currentConfigPath() string {
 func (a *App) generateBuiltinRunConfig(core string) error {
 	s := a.cfgManager.Settings
 	// 规则文件校验前置：缺文件时给出明确提示，而不是让内核启动报错
-	if err := config.CheckRuleFiles(s.RoutingMode, getBuiltinRulesDir()); err != nil {
+	if err := config.CheckRuleFiles(s.RoutingMode, s.Builtin.DNSMode, getBuiltinRulesDir()); err != nil {
 		return err
 	}
 	var n *node.Node
@@ -205,6 +205,7 @@ func (a *App) generateBuiltinRunConfig(core string) error {
 		ProxyPort:      s.ProxyPort,
 		RulesDir:       getBuiltinRulesDir(),
 		UIDir:          filepath.Join(getRunDir(), "ui"),
+		Cfg:            &s.Builtin,
 	}
 	// clash-api external-ui 目录（sing-box 目录为空时会自动下载默认面板）
 	os.MkdirAll(filepath.Join(getRunDir(), "ui"), 0755)
@@ -369,7 +370,7 @@ func (a *App) selectBuiltinRouting(mode string) (string, error) {
 	if n == nil {
 		return "", fmt.Errorf("内置路由模式需要先应用一个节点（在节点列表右键 → 应用此节点）")
 	}
-	if err := config.CheckRuleFiles(mode, getBuiltinRulesDir()); err != nil {
+	if err := config.CheckRuleFiles(mode, s.Builtin.DNSMode, getBuiltinRulesDir()); err != nil {
 		return "", err
 	}
 	wasRunning := a.sbProcess.GetStatus().Running
