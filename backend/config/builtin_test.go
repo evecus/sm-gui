@@ -73,12 +73,16 @@ func TestBuiltinNameRoundTrip(t *testing.T) {
 
 func TestCheckRuleFiles(t *testing.T) {
 	dir := t.TempDir()
-	// 全局模式零依赖
-	if err := CheckRuleFiles(ModeGlobal, dir); err != nil {
-		t.Fatalf("global 模式不应需要规则文件: %v", err)
+	// 三种模式都需要规则文件（global 也要 private 两个）
+	err := CheckRuleFiles(ModeGlobal, dir)
+	if err == nil {
+		t.Fatal("空目录应报缺失")
+	}
+	if !strings.Contains(err.Error(), "geosite-private.mrs") || !strings.Contains(err.Error(), "geoip-private.mrs") {
+		t.Fatalf("global 模式应需要 private 规则集: %v", err)
 	}
 	// bypass 缺文件 → 报错并列出缺失项
-	err := CheckRuleFiles(ModeBypass, dir)
+	err = CheckRuleFiles(ModeBypass, dir)
 	if err == nil {
 		t.Fatal("空目录应报缺失")
 	}
@@ -88,14 +92,18 @@ func TestCheckRuleFiles(t *testing.T) {
 		}
 	}
 	// 补齐文件后通过
-	for _, tag := range builtinRuleFiles[ModeBypass] {
-		os.MkdirAll(filepath.Join(dir, "srs"), 0755)
-		os.MkdirAll(filepath.Join(dir, "mrs"), 0755)
-		os.WriteFile(filepath.Join(dir, "srs", tag+".srs"), []byte("x"), 0644)
-		os.WriteFile(filepath.Join(dir, "mrs", tag+".mrs"), []byte("x"), 0644)
+	for _, mode := range []string{ModeBypass, ModeBlacklist, ModeGlobal} {
+		for _, tag := range builtinRuleFilesAll(mode) {
+			os.MkdirAll(filepath.Join(dir, "srs"), 0755)
+			os.MkdirAll(filepath.Join(dir, "mrs"), 0755)
+			os.WriteFile(filepath.Join(dir, "srs", tag+".srs"), []byte("x"), 0644)
+			os.WriteFile(filepath.Join(dir, "mrs", tag+".mrs"), []byte("x"), 0644)
+		}
 	}
-	if err := CheckRuleFiles(ModeBypass, dir); err != nil {
-		t.Fatalf("补齐后不应报错: %v", err)
+	for _, mode := range []string{ModeBypass, ModeBlacklist, ModeGlobal} {
+		if err := CheckRuleFiles(mode, dir); err != nil {
+			t.Fatalf("补齐后不应报错: %v", err)
+		}
 	}
 }
 
@@ -229,9 +237,9 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		wantSets   int
 		wantBypass bool // 绕过大陆应有 geosite-cn 直连
 	}{
-		{ModeBypass, "MATCH,PROXY", 3, true},
-		{ModeBlacklist, "MATCH,DIRECT", 9, false},
-		{ModeGlobal, "MATCH,PROXY", 0, false},
+		{ModeBypass, "MATCH,PROXY", 5, true},
+		{ModeBlacklist, "MATCH,DIRECT", 11, false},
+		{ModeGlobal, "MATCH,PROXY", 2, false},
 	}
 	for _, c := range cases {
 		opts := base
@@ -250,15 +258,20 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		if rules[len(rules)-1] != c.wantMatch {
 			t.Errorf("[%s] 末条规则 = %s, want %s", c.mode, rules[len(rules)-1], c.wantMatch)
 		}
-		// 私网 CIDR 内联（不依赖规则文件）
-		foundPrivate := false
+		// 私网直连走 private 规则集（不再内联 CIDR）
+		rulesSet := map[string]bool{}
 		for _, r := range rules {
-			if strings.HasPrefix(r, "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve") {
-				foundPrivate = true
-			}
+			rulesSet[r] = true
 		}
-		if !foundPrivate {
-			t.Errorf("[%s] 应含内联私网直连规则", c.mode)
+		if !rulesSet["RULE-SET,geosite-private,DIRECT"] {
+			t.Errorf("[%s] 应含 RULE-SET,geosite-private,DIRECT", c.mode)
+		}
+		if !rulesSet["RULE-SET,geoip-private,DIRECT,no-resolve"] {
+			t.Errorf("[%s] 应含 RULE-SET,geoip-private,DIRECT,no-resolve", c.mode)
+		}
+		// no-resolve 策略：仅 geoip-cn 不加
+		if c.wantBypass && !rulesSet["RULE-SET,geoip-cn,DIRECT"] {
+			t.Errorf("[%s] geoip-cn 规则应不带 no-resolve", c.mode)
 		}
 		// rule-providers
 		if c.wantSets > 0 {

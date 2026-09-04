@@ -10,7 +10,9 @@ package config
 // geosite/geoip 规则引用本地规则文件：
 //   - sing-box: run/rules/srs/<tag>.srs  （local rule_set, format=binary）
 //   - mihomo:   run/rules/mrs/<tag>.mrs  （file rule-provider, format=mrs）
-// 私网直连不走规则文件：sing-box 用原生 ip_is_private，mihomo 内联 CIDR 列表。
+// 私网直连：sing-box 用原生 ip_is_private（零文件依赖）；
+// mihomo 用 geosite-private / geoip-private 规则集（private.mrs）。
+// no-resolve 策略：仅 geoip-cn 不加（域名需解析为 IP 命中国内 IP 段），其余 IP 规则集都加。
 
 import (
 	"encoding/json"
@@ -95,9 +97,10 @@ func BuiltinDisplayNames() []string {
 	return names
 }
 
-// builtinRuleFiles 各模式需要的规则文件基础名（不含扩展名）。
+// singboxRuleFiles / mihomoRuleFiles 各内核各模式需要的规则文件基础名（不含扩展名）。
 // geosite-* → mihomo behavior=domain；geoip-* → behavior=ipcidr。
-var builtinRuleFiles = map[string][]string{
+// sing-box 私网用原生 ip_is_private，不需要 private 规则文件；mihomo 需要。
+var singboxRuleFiles = map[string][]string{
 	ModeBypass: {"geosite-cn", "geosite-google", "geoip-cn"},
 	ModeBlacklist: {
 		"geosite-google", "geosite-gfw", "geosite-greatfire",
@@ -105,6 +108,36 @@ var builtinRuleFiles = map[string][]string{
 		"geoip-netflix", "geoip-telegram", "geoip-twitter",
 	},
 	ModeGlobal: {},
+}
+
+var mihomoRuleFiles = map[string][]string{
+	ModeBypass: {"geosite-private", "geoip-private", "geosite-cn", "geosite-google", "geoip-cn"},
+	ModeBlacklist: {
+		"geosite-private", "geoip-private",
+		"geosite-google", "geosite-gfw", "geosite-greatfire",
+		"geoip-facebook", "geoip-fastly", "geoip-google",
+		"geoip-netflix", "geoip-telegram", "geoip-twitter",
+	},
+	ModeGlobal: {"geosite-private", "geoip-private"},
+}
+
+// builtinRuleFilesAll 两种内核规则文件的并集（供 CheckRuleFiles 校验，宁多勿缺）。
+func builtinRuleFilesAll(mode string) []string {
+	seen := map[string]bool{}
+	var all []string
+	for _, tag := range singboxRuleFiles[mode] {
+		if !seen[tag] {
+			seen[tag] = true
+			all = append(all, tag)
+		}
+	}
+	for _, tag := range mihomoRuleFiles[mode] {
+		if !seen[tag] {
+			seen[tag] = true
+			all = append(all, tag)
+		}
+	}
+	return all
 }
 
 // isGeositeTag 判断规则 tag 是否为 geosite 类（决定 mihomo rule-provider 的 behavior）。
@@ -115,7 +148,7 @@ func isGeositeTag(tag string) bool {
 // CheckRuleFiles 校验内置模式所需的规则文件是否齐全（rulesDir 下 srs/ 与 mrs/ 子目录）。
 // 返回的错误一次性列出全部缺失文件。
 func CheckRuleFiles(mode, rulesDir string) error {
-	files := builtinRuleFiles[mode]
+	files := builtinRuleFilesAll(mode)
 	if len(files) == 0 {
 		return nil
 	}
@@ -148,14 +181,18 @@ func joinLines(ss []string) string {
 	return out
 }
 
-// ─── 私网直连（内联，不依赖规则文件）──────────────────────────────────────────
+// ─── 私网直连 ────────────────────────────────────────────────────────────────
+// sing-box：原生 ip_is_private 字段，不依赖规则文件；
+// mihomo：geosite-private / geoip-private 规则集（private.mrs）。
 
-// privateCIDRs 私网/保留地址段（RFC1918 + 回环 + 链路本地 + CGNAT + 组播）。
-var privateCIDRs = []string{
-	"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
-	"127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10",
-	"224.0.0.0/4", "255.255.255.255/32",
-	"::1/128", "fc00::/7", "fe80::/10", "ff00::/8",
+// noResolveExceptCN mihomo IP 类规则集的 no-resolve 策略：
+// 仅 geoip-cn 不加（域名需解析为 IP 以命中国内 IP 段），其余 IP 规则集都加
+// （域名连接跳过 IP 匹配，避免不必要的 DNS 解析）。
+func mihomoIPRule(tag, target string) string {
+	if tag == "geoip-cn" {
+		return "RULE-SET," + tag + "," + target
+	}
+	return "RULE-SET," + tag + "," + target + ",no-resolve"
 }
 
 // cnDNSIPs / cnDNSSuffixes 等列表已删除：直连 DNS 写死 223.5.5.5、代理 DNS 写死 8.8.8.8，
@@ -315,7 +352,7 @@ func buildBuiltinSingBoxRoute(opts BuiltinOptions) map[string]interface{} {
 
 	// 本地 rule_set（引用 run/rules/srs/ 下的 .srs 文件）
 	var ruleSet []interface{}
-	for _, tag := range builtinRuleFiles[opts.Mode] {
+	for _, tag := range singboxRuleFiles[opts.Mode] {
 		ruleSet = append(ruleSet, map[string]interface{}{
 			"type":   "local",
 			"tag":    tag,
@@ -430,7 +467,7 @@ func appendBuiltinMihomoMixed(cfg map[string]interface{}, opts BuiltinOptions) {
 func appendBuiltinMihomoRoute(cfg map[string]interface{}, opts BuiltinOptions) {
 	// rule-providers：仅生成当前模式引用的条目
 	providers := map[string]interface{}{}
-	for _, tag := range builtinRuleFiles[opts.Mode] {
+	for _, tag := range mihomoRuleFiles[opts.Mode] {
 		behavior := "ipcidr"
 		if isGeositeTag(tag) {
 			behavior = "domain"
@@ -446,10 +483,10 @@ func appendBuiltinMihomoRoute(cfg map[string]interface{}, opts BuiltinOptions) {
 		cfg["rule-providers"] = providers
 	}
 
-	// 私网直连：内联 CIDR（不依赖规则文件）
-	privateDirect := make([]interface{}, 0, len(privateCIDRs))
-	for _, cidr := range privateCIDRs {
-		privateDirect = append(privateDirect, "IP-CIDR,"+cidr+",DIRECT,no-resolve")
+	// 私网直连：private 规则集（geosite 匹配局域网域名，geoip 匹配私网 IP）
+	privateDirect := []interface{}{
+		"RULE-SET,geosite-private,DIRECT",
+		mihomoIPRule("geoip-private", "DIRECT"),
 	}
 
 	udpQUICReject := "AND,((NETWORK,udp),(DST-PORT,443)),REJECT"
@@ -463,7 +500,7 @@ func appendBuiltinMihomoRoute(cfg map[string]interface{}, opts BuiltinOptions) {
 		rules = append(rules, privateDirect...)
 		rules = append(rules,
 			"RULE-SET,geosite-cn,DIRECT",
-			"RULE-SET,geoip-cn,DIRECT,no-resolve",
+			mihomoIPRule("geoip-cn", "DIRECT"),
 			"MATCH,"+mihomoGroupName,
 		)
 	case ModeBlacklist:
@@ -474,7 +511,7 @@ func appendBuiltinMihomoRoute(cfg map[string]interface{}, opts BuiltinOptions) {
 		)
 		rules = append(rules, privateDirect...)
 		for _, tag := range []string{"geoip-facebook", "geoip-fastly", "geoip-google", "geoip-netflix", "geoip-telegram", "geoip-twitter"} {
-			rules = append(rules, "RULE-SET,"+tag+",PROXY,no-resolve")
+			rules = append(rules, mihomoIPRule(tag, "PROXY"))
 		}
 		rules = append(rules,
 			"RULE-SET,geosite-gfw,PROXY",

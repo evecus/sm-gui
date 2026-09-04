@@ -97,6 +97,7 @@ jobs:
         run: |
           # 内置路由必需的规则文件（与 README 中的清单一致），缺任何一个直接失败
           $required = @(
+            "geosite-private", "geoip-private",
             "geosite-cn", "geosite-google", "geosite-gfw", "geosite-greatfire",
             "geoip-cn", "geoip-facebook", "geoip-fastly", "geoip-google",
             "geoip-netflix", "geoip-telegram", "geoip-twitter"
@@ -156,6 +157,6 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: test
-          name: test
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           files: sm-gui-windows-amd64.zip

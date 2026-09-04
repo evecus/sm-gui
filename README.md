@@ -66,7 +66,7 @@
 2. 规则文件放入 `run/rules/`（**Release 包已内置**，自己编译时从仓库 `ruleset/` 目录复制）：
    - sing-box：`run/rules/srs/<tag>.srs`，来源 [SagerNet/sing-geosite](https://github.com/SagerNet/sing-geosite/releases)、[SagerNet/sing-geoip](https://github.com/SagerNet/sing-geoip/releases)
    - mihomo：`run/rules/mrs/<tag>.mrs`（behavior：geosite→domain，geoip→ipcidr），来源 [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat)
-   - 需要的 tag：绕过大陆 = `geosite-cn` `geosite-google` `geoip-cn`；GFW列表 = `geosite-google` `geosite-gfw` `geosite-greatfire` `geoip-facebook` `geoip-fastly` `geoip-google` `geoip-netflix` `geoip-telegram` `geoip-twitter`；全局代理无需规则文件
+   - 需要的 tag：绕过大陆 = `geosite-private` `geoip-private` `geosite-cn` `geosite-google` `geoip-cn`；GFW列表 = `geosite-private` `geoip-private` `geosite-google` `geosite-gfw` `geosite-greatfire` `geoip-facebook` `geoip-fastly` `geoip-google` `geoip-netflix` `geoip-telegram` `geoip-twitter`；全局代理（mihomo）= `geosite-private` `geoip-private`（sing-box 全局用原生 `ip_is_private`，无需规则文件）
 3. sing-box 内核要求 **≥ 1.12**（rule action / dns rule_set 语法）
 
 ## 从源码编译
