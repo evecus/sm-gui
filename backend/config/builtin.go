@@ -1,0 +1,488 @@
+package config
+
+// 内置路由模式：参照 v2rayN 的三种路由模板（ServiceLib/Sample/custom_routing_*）生成
+// sing-box / mihomo 配置，直接合成到 run 目录，不修改用户 configs/ 中的配置文件。
+//
+//   - bypass    绕过大陆（v2rayN "Whitelist"）：国内/私网直连，其余走代理，final=proxy
+//   - blacklist GFW列表（v2rayN "Blacklist"）：被墙域名/海外服务 IP 走代理，其余直连，final=direct
+//   - global    全局代理（v2rayN "Global"）：仅私网直连，其余走代理，final=proxy
+//
+// geosite/geoip 规则引用本地规则文件：
+//   - sing-box: run/rules/srs/<tag>.srs  （local rule_set, format=binary）
+//   - mihomo:   run/rules/mrs/<tag>.mrs  （file rule-provider, format=mrs）
+// 私网直连不走规则文件：sing-box 用原生 ip_is_private，mihomo 内联 CIDR 列表。
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"sm-gui/backend/node"
+
+	"gopkg.in/yaml.v3"
+)
+
+// marshalJSON / marshalYAML 内置配置序列化。
+func marshalJSON(cfg map[string]interface{}) ([]byte, error) {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("生成 JSON 配置失败: %v", err)
+	}
+	return data, nil
+}
+
+func marshalYAML(cfg map[string]interface{}) ([]byte, error) {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("生成 YAML 配置失败: %v", err)
+	}
+	return data, nil
+}
+
+// 路由模式常量（与 Settings.RoutingMode 对应）。
+const (
+	ModeCustom    = "custom"
+	ModeBypass    = "bypass"
+	ModeBlacklist = "blacklist"
+	ModeGlobal    = "global"
+)
+
+// BuiltinPrefix 内置配置在下拉列表中的显示前缀。
+const BuiltinPrefix = "内置配置："
+
+// builtinModeNames 内置模式 → 显示名（顺序即下拉顺序）。
+var builtinModeNames = []struct {
+	Mode string
+	Name string
+}{
+	{ModeBypass, "绕过大陆"},
+	{ModeBlacklist, "GFW列表"},
+	{ModeGlobal, "全局代理"},
+}
+
+// IsBuiltinMode 判断是否为内置路由模式。
+func IsBuiltinMode(mode string) bool {
+	return mode == ModeBypass || mode == ModeBlacklist || mode == ModeGlobal
+}
+
+// BuiltinDisplayName 返回内置模式的下拉显示名（如 "内置配置：绕过大陆"）。
+func BuiltinDisplayName(mode string) (string, bool) {
+	for _, m := range builtinModeNames {
+		if m.Mode == mode {
+			return BuiltinPrefix + m.Name, true
+		}
+	}
+	return "", false
+}
+
+// ParseBuiltinName 把下拉项解析为路由模式（仅接受 "内置配置：xxx" 形式）。
+func ParseBuiltinName(name string) (string, bool) {
+	for _, m := range builtinModeNames {
+		if name == BuiltinPrefix+m.Name {
+			return m.Mode, true
+		}
+	}
+	return "", false
+}
+
+// BuiltinDisplayNames 返回全部内置配置的显示名（供 GetConfigFiles 追加）。
+func BuiltinDisplayNames() []string {
+	names := make([]string, 0, len(builtinModeNames))
+	for _, m := range builtinModeNames {
+		names = append(names, BuiltinPrefix+m.Name)
+	}
+	return names
+}
+
+// builtinRuleFiles 各模式需要的规则文件基础名（不含扩展名）。
+// geosite-* → mihomo behavior=domain；geoip-* → behavior=ipcidr。
+var builtinRuleFiles = map[string][]string{
+	ModeBypass: {"geosite-cn", "geosite-google", "geoip-cn"},
+	ModeBlacklist: {
+		"geosite-google", "geosite-gfw", "geosite-greatfire",
+		"geoip-facebook", "geoip-fastly", "geoip-google",
+		"geoip-netflix", "geoip-telegram", "geoip-twitter",
+	},
+	ModeGlobal: {},
+}
+
+// isGeositeTag 判断规则 tag 是否为 geosite 类（决定 mihomo rule-provider 的 behavior）。
+func isGeositeTag(tag string) bool {
+	return len(tag) > 7 && tag[:7] == "geosite"
+}
+
+// CheckRuleFiles 校验内置模式所需的规则文件是否齐全（rulesDir 下 srs/ 与 mrs/ 子目录）。
+// 返回的错误一次性列出全部缺失文件。
+func CheckRuleFiles(mode, rulesDir string) error {
+	files := builtinRuleFiles[mode]
+	if len(files) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, f := range files {
+		srs := filepath.Join(rulesDir, "srs", f+".srs")
+		mrs := filepath.Join(rulesDir, "mrs", f+".mrs")
+		if _, err := os.Stat(srs); err != nil {
+			missing = append(missing, "run/rules/srs/"+f+".srs")
+		}
+		if _, err := os.Stat(mrs); err != nil {
+			missing = append(missing, "run/rules/mrs/"+f+".mrs")
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("缺少规则文件:\n  %s\n请将对应 .srs/.mrs 文件放入上述目录（srs 来源: SagerNet/sing-geosite、SagerNet/sing-geoip；mrs 来源: MetaCubeX/meta-rules-dat）",
+			joinLines(missing))
+	}
+	return nil
+}
+
+func joinLines(ss []string) string {
+	out := ""
+	for i, s := range ss {
+		if i > 0 {
+			out += "\n  "
+		}
+		out += s
+	}
+	return out
+}
+
+// ─── 私网直连（内联，不依赖规则文件）──────────────────────────────────────────
+
+// privateCIDRs 私网/保留地址段（RFC1918 + 回环 + 链路本地 + CGNAT + 组播）。
+var privateCIDRs = []string{
+	"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+	"127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10",
+	"224.0.0.0/4", "255.255.255.255/32",
+	"::1/128", "fc00::/7", "fe80::/10", "ff00::/8",
+}
+
+// cnDNSIPs / cnDNSSuffixes 等列表已删除：直连 DNS 写死 223.5.5.5、代理 DNS 写死 8.8.8.8，
+// DNS 行为完全由 DNS 模块决定，不需要再为 DNS 服务器本身生成 IP/域名路由规则。
+
+// ─── 配置生成入口 ─────────────────────────────────────────────────────────────
+
+// BuiltinOptions 内置配置生成参数（取自 Settings 与运行时开关状态）。
+type BuiltinOptions struct {
+	Mode           string
+	TunEnabled     bool
+	TunStack       string
+	TunMTU         int
+	TunStrictRoute bool
+	ProxyEnabled   bool // 系统代理开关（决定 mixed inbound / mixed-port）
+	ProxyListen    string
+	ProxyPort      int
+	RulesDir       string // run/rules 绝对路径
+}
+
+// BuildBuiltinConfig 按内核生成内置模式配置（JSON for sing-box / YAML for mihomo）。
+func BuildBuiltinConfig(core string, opts BuiltinOptions, n *node.Node) ([]byte, error) {
+	if !IsBuiltinMode(opts.Mode) {
+		return nil, fmt.Errorf("非内置路由模式: %s", opts.Mode)
+	}
+	if n == nil {
+		return nil, fmt.Errorf("内置路由模式需要先应用一个节点")
+	}
+	if core == CoreMihomo {
+		return buildBuiltinMihomo(opts, n)
+	}
+	return buildBuiltinSingBox(opts, n)
+}
+
+// ─── sing-box ────────────────────────────────────────────────────────────────
+
+// buildBuiltinSingBox 合成 sing-box JSON 配置。
+// 结构对齐 config.example.json（DNS 用 1.12 新格式，server 必须带 type）；路由规则对齐 v2rayN 三模板。
+func buildBuiltinSingBox(opts BuiltinOptions, n *node.Node) ([]byte, error) {
+	// proxy outbound：复用节点出站构造（RawOutbound 无损回写优先）
+	var proxyOut map[string]interface{}
+	if n.RawOutbound != nil {
+		proxyOut = n.RawOutbound
+	} else {
+		var err error
+		proxyOut, err = nodeToSingBoxOutbound(*n)
+		if err != nil {
+			return nil, err
+		}
+	}
+	proxyOut["tag"] = "proxy"
+
+	cfg := map[string]interface{}{
+		"log": map[string]interface{}{"level": "info", "timestamp": true},
+		"dns": buildBuiltinSingBoxDNS(opts.Mode),
+		"inbounds":  buildBuiltinSingBoxInbounds(opts),
+		"outbounds": []interface{}{proxyOut, map[string]interface{}{"type": "direct", "tag": "direct"}},
+		"route":     buildBuiltinSingBoxRoute(opts),
+	}
+	return marshalJSON(cfg)
+}
+
+// buildBuiltinSingBoxDNS 按模式生成 DNS 分流（sing-box 1.12 新格式：server 必须带 type）。
+func buildBuiltinSingBoxDNS(mode string) map[string]interface{} {
+	servers := []interface{}{
+		map[string]interface{}{"type": "udp", "tag": "dns-proxy", "server": "8.8.8.8", "detour": "proxy"},
+		// 直连 DNS 不能带 detour 字段（内核报错），默认即直连
+		map[string]interface{}{"type": "udp", "tag": "dns-local", "server": "223.5.5.5"},
+	}
+	var rules []interface{}
+	final := "dns-proxy"
+	switch mode {
+	case ModeBypass:
+		// 国内域名走本地 DNS，其余走代理 DNS
+		rules = append(rules,
+			map[string]interface{}{"rule_set": []string{"geosite-cn"}, "server": "dns-local"},
+		)
+	case ModeBlacklist:
+		// 被墙/Google 域名走代理 DNS，其余本地
+		rules = append(rules,
+			map[string]interface{}{"rule_set": []string{"geosite-gfw", "geosite-greatfire", "geosite-google"}, "server": "dns-proxy"},
+		)
+		final = "dns-local"
+	case ModeGlobal:
+		// 全部走代理 DNS
+	}
+	return map[string]interface{}{
+		"servers": servers,
+		"rules":   rules,
+		"final":   final,
+	}
+}
+
+// buildBuiltinSingBoxInbounds 按开关生成 mixed / tun inbound。
+func buildBuiltinSingBoxInbounds(opts BuiltinOptions) []interface{} {
+	inbounds := []interface{}{} // 保持空数组而非 null，避免内核解析失败
+	if opts.ProxyEnabled {
+		listen := opts.ProxyListen
+		if listen == "" {
+			listen = "127.0.0.1"
+		}
+		port := opts.ProxyPort
+		if port <= 0 {
+			port = 2080
+		}
+		inbounds = append(inbounds, map[string]interface{}{
+			"type":        "mixed",
+			"tag":         "mixed-in",
+			"listen":      listen,
+			"listen_port": port,
+		})
+	}
+	if opts.TunEnabled {
+		inbounds = append(inbounds, buildTunInbound(opts.TunStack, opts.TunMTU, opts.TunStrictRoute))
+	}
+	return inbounds
+}
+
+// buildBuiltinSingBoxRoute 生成 route 段：规则对齐 v2rayN 模板，geosite/geoip 走本地 rule_set。
+func buildBuiltinSingBoxRoute(opts BuiltinOptions) map[string]interface{} {
+	rules := []interface{}{
+		// 首条嗅探：mixed inbound 的流量只有嗅探后才有域名信息，否则 geosite 规则不命中
+		map[string]interface{}{"action": "sniff"},
+	}
+	if opts.TunEnabled {
+		rules = append(rules, map[string]interface{}{"port": 53, "action": "hijack-dns"})
+	}
+
+	privateDirect := map[string]interface{}{"ip_is_private": true, "outbound": "direct"}
+	udpQUICReject := map[string]interface{}{"port": 443, "network": []string{"udp"}, "action": "reject"}
+
+	final := "proxy"
+	switch opts.Mode {
+	case ModeBypass:
+		rules = append(rules,
+			udpQUICReject,
+			map[string]interface{}{"rule_set": []string{"geosite-google"}, "outbound": "proxy"},
+			privateDirect,
+			map[string]interface{}{"rule_set": []string{"geosite-cn"}, "outbound": "direct"},
+			map[string]interface{}{"rule_set": []string{"geoip-cn"}, "outbound": "direct"},
+		)
+	case ModeBlacklist:
+		final = "direct"
+		rules = append(rules,
+			// 对齐 v2rayN black 模板（mihomo 无 protocol 匹配，此规则仅 sing-box 有）
+			map[string]interface{}{"protocol": []string{"bittorrent"}, "outbound": "direct"},
+			map[string]interface{}{"domain": []string{"api.ip.sb"}, "outbound": "proxy"},
+			udpQUICReject,
+			map[string]interface{}{"rule_set": []string{"geosite-google"}, "outbound": "proxy"},
+			privateDirect,
+			map[string]interface{}{"rule_set": []string{"geoip-facebook", "geoip-fastly", "geoip-google", "geoip-netflix", "geoip-telegram", "geoip-twitter"}, "outbound": "proxy"},
+			map[string]interface{}{"rule_set": []string{"geosite-gfw", "geosite-greatfire"}, "outbound": "proxy"},
+		)
+	case ModeGlobal:
+		rules = append(rules, udpQUICReject, privateDirect)
+	}
+
+	// 本地 rule_set（引用 run/rules/srs/ 下的 .srs 文件）
+	var ruleSet []interface{}
+	for _, tag := range builtinRuleFiles[opts.Mode] {
+		ruleSet = append(ruleSet, map[string]interface{}{
+			"type":   "local",
+			"tag":    tag,
+			"format": "binary",
+			"path":   filepath.Join(opts.RulesDir, "srs", tag+".srs"),
+		})
+	}
+
+	route := map[string]interface{}{
+		"rules": rules,
+		"final": final,
+	}
+	if ruleSet != nil {
+		route["rule_set"] = ruleSet
+	}
+	if opts.TunEnabled {
+		route["auto_detect_interface"] = true
+	}
+	return route
+}
+
+// ─── mihomo ──────────────────────────────────────────────────────────────────
+
+// buildBuiltinMihomo 合成 mihomo YAML 配置（与 sing-box 版逐条对齐；
+// 唯一差异：mihomo 没有 protocol 匹配，bittorrent 直连规则仅 sing-box 生成）。
+func buildBuiltinMihomo(opts BuiltinOptions, n *node.Node) ([]byte, error) {
+	// proxy 条目：RawClashProxy 无损回写优先
+	var proxy map[string]interface{}
+	if n.RawClashProxy != nil {
+		proxy = cloneMap(n.RawClashProxy)
+		if proxy == nil {
+			return nil, fmt.Errorf("节点原始 Clash 数据无效")
+		}
+	} else {
+		var err error
+		proxy, err = node.NodeToClashProxy(*n)
+		if err != nil {
+			return nil, err
+		}
+	}
+	proxy["name"] = mihomoProxyName
+
+	cfg := map[string]interface{}{
+		"mode":         "rule",
+		"log-level":    "info",
+		"proxies":      []interface{}{proxy},
+		"proxy-groups": []interface{}{map[string]interface{}{"name": mihomoGroupName, "type": "select", "proxies": []interface{}{mihomoProxyName, "DIRECT"}}},
+		"dns":          buildBuiltinMihomoDNS(),
+	}
+	appendBuiltinMihomoMixed(cfg, opts)
+	if opts.TunEnabled {
+		cfg["tun"] = buildBuiltinMihomoTun(opts)
+	}
+	appendBuiltinMihomoRoute(cfg, opts)
+	return marshalYAML(cfg)
+}
+
+// buildBuiltinMihomoDNS fake-ip DNS（三种模式共用：直连流量经国内 DNS 解析，
+// 代理流量由远端解析；proxy-server-nameserver 保证代理服务器域名不走 fake-ip）。
+func buildBuiltinMihomoDNS() map[string]interface{} {
+	return map[string]interface{}{
+		"enable":                 true,
+		"enhanced-mode":          "fake-ip",
+		"fake-ip-range":          "198.18.0.1/16",
+		"fake-ip-filter":         []interface{}{"*.lan", "*.local", "*.localdomain", "+.msftconnecttest.com", "+.msftncsi.com", "time.*.com", "time.*.gov", "time.*.edu.cn", "+.ntp.org", "+.pool.ntp.org", "ntp1.aliyun.com"},
+		"fake-ip-filter-mode":    "blacklist",
+		"nameserver":             []interface{}{"223.5.5.5", "119.29.29.29"},
+		"proxy-server-nameserver": []interface{}{"223.5.5.5"},
+	}
+}
+
+// buildBuiltinMihomoTun TUN 配置（对齐 SetTunMihomo 写入的字段）。
+func buildBuiltinMihomoTun(opts BuiltinOptions) map[string]interface{} {
+	stack := opts.TunStack
+	if stack != "gvisor" && stack != "system" && stack != "mixed" {
+		stack = "gvisor"
+	}
+	mtu := opts.TunMTU
+	if mtu <= 0 {
+		mtu = 9000
+	}
+	return map[string]interface{}{
+		"enable":                true,
+		"stack":                 stack,
+		"mtu":                   mtu,
+		"auto-route":            true,
+		"auto-detect-interface": true,
+		"dns-hijack":            []interface{}{"any:53"},
+	}
+}
+
+// appendBuiltinMihomoMixed 按系统代理开关写 mixed-port / allow-lan（对齐 SetMixedInboundMihomo）。
+func appendBuiltinMihomoMixed(cfg map[string]interface{}, opts BuiltinOptions) {
+	if !opts.ProxyEnabled {
+		return
+	}
+	port := opts.ProxyPort
+	if port <= 0 {
+		port = 2080
+	}
+	cfg["mixed-port"] = port
+	allowLan := opts.ProxyListen != "127.0.0.1"
+	cfg["allow-lan"] = allowLan
+	if allowLan {
+		cfg["bind-address"] = "*"
+	}
+}
+
+// appendBuiltinMihomoRoute 写 rule-providers（file 型 .mrs）与 rules（对齐 sing-box 版顺序）。
+func appendBuiltinMihomoRoute(cfg map[string]interface{}, opts BuiltinOptions) {
+	// rule-providers：仅生成当前模式引用的条目
+	providers := map[string]interface{}{}
+	for _, tag := range builtinRuleFiles[opts.Mode] {
+		behavior := "ipcidr"
+		if isGeositeTag(tag) {
+			behavior = "domain"
+		}
+		providers[tag] = map[string]interface{}{
+			"type":     "file",
+			"behavior": behavior,
+			"format":   "mrs",
+			"path":     filepath.Join(opts.RulesDir, "mrs", tag+".mrs"),
+		}
+	}
+	if len(providers) > 0 {
+		cfg["rule-providers"] = providers
+	}
+
+	// 私网直连：内联 CIDR（不依赖规则文件）
+	privateDirect := make([]interface{}, 0, len(privateCIDRs))
+	for _, cidr := range privateCIDRs {
+		privateDirect = append(privateDirect, "IP-CIDR,"+cidr+",DIRECT,no-resolve")
+	}
+
+	udpQUICReject := "AND,((NETWORK,udp),(DST-PORT,443)),REJECT"
+	var rules []interface{}
+	switch opts.Mode {
+	case ModeBypass:
+		rules = append(rules,
+			udpQUICReject,
+			"RULE-SET,geosite-google,"+mihomoGroupName,
+		)
+		rules = append(rules, privateDirect...)
+		rules = append(rules,
+			"RULE-SET,geosite-cn,DIRECT",
+			"RULE-SET,geoip-cn,DIRECT,no-resolve",
+			"MATCH,"+mihomoGroupName,
+		)
+	case ModeBlacklist:
+		rules = append(rules,
+			"DOMAIN,api.ip.sb,"+mihomoGroupName,
+			udpQUICReject,
+			"RULE-SET,geosite-google,"+mihomoGroupName,
+		)
+		rules = append(rules, privateDirect...)
+		for _, tag := range []string{"geoip-facebook", "geoip-fastly", "geoip-google", "geoip-netflix", "geoip-telegram", "geoip-twitter"} {
+			rules = append(rules, "RULE-SET,"+tag+",PROXY,no-resolve")
+		}
+		rules = append(rules,
+			"RULE-SET,geosite-gfw,PROXY",
+			"RULE-SET,geosite-greatfire,PROXY",
+			"MATCH,DIRECT",
+		)
+	case ModeGlobal:
+		rules = append(rules, udpQUICReject)
+		rules = append(rules, privateDirect...)
+		rules = append(rules, "MATCH,"+mihomoGroupName)
+	}
+	cfg["rules"] = rules
+}

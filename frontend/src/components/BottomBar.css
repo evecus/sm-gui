@@ -1,0 +1,107 @@
+.bottom-bar {
+  display: flex;
+  align-items: stretch;
+  height: 64px;
+  background: var(--bg-1);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+
+.bottom-divider {
+  width: 1px;
+  background: var(--border);
+  margin: 10px 0;
+  flex-shrink: 0;
+}
+
+.toggle-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 18px;
+  background: transparent;
+  border: none;
+  color: var(--text-1);
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+  border-radius: var(--radius);
+  margin: 4px 2px;
+}
+
+.toggle-btn:hover {
+  background: var(--bg-3);
+  color: var(--text-0);
+}
+
+.toggle-btn.enabled {
+  background: color-mix(in srgb, var(--active-color) 8%, transparent);
+  color: var(--active-color);
+}
+
+.toggle-btn.enabled:hover {
+  background: color-mix(in srgb, var(--active-color) 14%, transparent);
+}
+
+.toggle-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.toggle-icon {
+  font-size: 15px;
+  line-height: 1;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.toggle-label {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+/* Switch */
+.toggle-switch {
+  width: 34px;
+  height: 18px;
+  background: var(--bg-3);
+  border-radius: 9px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+.toggle-switch.on { border-color: transparent; }
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--text-2);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+.toggle-switch.on .toggle-knob {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.toggle-desc {
+  font-size: 10.5px;
+  color: var(--text-2);
+  padding-left: 26px;
+  font-family: var(--mono);
+  transition: color 0.15s;
+}
+.toggle-btn.enabled .toggle-desc {
+  color: color-mix(in srgb, var(--active-color) 70%, var(--text-2));
+}

@@ -1,0 +1,278 @@
+.node-list-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ─── 分组页签栏(替代原搜索框位置) ─── */
+.group-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.group-tabs-bar::-webkit-scrollbar { height: 4px; }
+
+.group-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 12px;
+  color: var(--text-1);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.group-tab:hover {
+  border-color: var(--accent);
+  color: var(--text-0);
+}
+.group-tab.active {
+  background: var(--accent-dim, rgba(91, 124, 246, 0.15));
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.group-tab.builtin.active {
+  border-style: solid;
+}
+.group-tab-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.group-tab-count {
+  font-size: 10px;
+  font-family: var(--mono);
+  background: var(--bg-3);
+  border-radius: 8px;
+  padding: 0 6px;
+  min-width: 16px;
+  text-align: center;
+}
+.group-tab.active .group-tab-count {
+  background: var(--accent);
+  color: #fff;
+}
+
+.node-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+/* 分组命名弹窗 */
+.group-name-modal { width: 360px; }
+.group-name-modal .modal-input { width: 100%; box-sizing: border-box; }
+
+.node-group { margin-bottom: 4px; }
+
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 4px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-0);
+  z-index: 1;
+}
+
+.group-icon { color: var(--accent); font-size: 11px; }
+.group-url {
+  font-size: 10px;
+  color: var(--text-2);
+  font-family: var(--mono);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-count {
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--bg-3);
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-family: var(--mono);
+}
+
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border-left: 2px solid transparent;
+}
+.node-row:hover { background: var(--bg-2); }
+.node-row.selected {
+  background: var(--accent-dim);
+  border-left-color: var(--accent);
+}
+/* 已应用到配置文件的节点 */
+.node-row.applied:not(.selected) {
+  background: color-mix(in srgb, #3ddc84 8%, transparent);
+  border-left-color: #3ddc84;
+}
+.node-row.applied.selected {
+  border-left-color: #3ddc84;
+}
+
+.applied-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  border-radius: 3px;
+  color: #3ddc84;
+  border: 1px solid #3ddc8466;
+  background: #3ddc8414;
+  vertical-align: 1px;
+  flex-shrink: 0;
+}
+
+.node-proto-badge {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--mono);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid;
+  min-width: 38px;
+  text-align: center;
+  flex-shrink: 0;
+  letter-spacing: 0.5px;
+}
+
+.node-name {
+  flex: 1;
+  font-size: 12.5px;
+  color: var(--text-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-addr {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Empty state */
+.node-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+  color: var(--text-2);
+}
+.empty-icon { font-size: 40px; color: var(--text-3); }
+.empty-title { font-size: 15px; font-weight: 600; color: var(--text-1); }
+.empty-desc { font-size: 12px; color: var(--text-2); }
+
+/* Context menu */
+.context-menu {
+  position: fixed;
+  z-index: 999;
+  background: var(--bg-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px;
+  min-width: 150px;
+  animation: ctx-appear 0.08s ease;
+}
+@keyframes ctx-appear {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.ctx-node-name {
+  padding: 5px 10px 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.ctx-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0;
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  color: var(--text-0);
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  transition: background 0.1s;
+  text-align: left;
+}
+.ctx-item:hover { background: var(--bg-3); }
+.ctx-item.primary { color: var(--accent); }
+.ctx-item.primary:hover { background: var(--accent-dim); }
+.ctx-item.danger { color: #f05252; }
+.ctx-item.danger:hover { background: rgba(240, 82, 82, 0.12); }
+.ctx-item.disabled {
+  color: var(--text-3);
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* 传输层 / TLS 标识 chips */
+.meta-chip {
+  font-size: 9px;
+  font-family: var(--mono);
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+.meta-chip.tls {
+  background: rgba(61, 220, 132, 0.1);
+  color: #3ddc84;
+  border-color: rgba(61, 220, 132, 0.35);
+}
+.meta-chip.tls.ech {
+  background: rgba(94, 234, 212, 0.12);
+  color: #5eead4;
+  border-color: rgba(94, 234, 212, 0.4);
+}
+.meta-chip.utls {
+  background: rgba(91, 124, 246, 0.1);
+  color: #8fa8ff;
+  border-color: rgba(91, 124, 246, 0.35);
+}

@@ -1,0 +1,49 @@
+/* ─── 设置页面（与节点列表/日志同级的页面，非弹窗） ───────────────────── */
+
+.settings-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.settings-panel-body .settings-row {
+  flex-wrap: wrap;
+}
+
+.settings-panel-body .settings-input {
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
+}
+
+.settings-panel-body select.settings-input {
+  max-width: 400px;
+}
+
+.settings-panel-body .settings-hint {
+  flex: 1;
+  min-width: 160px;
+}
+
+.settings-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.settings-panel-footer .settings-reset {
+  margin-right: auto;
+}

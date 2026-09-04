@@ -1,0 +1,161 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+
+      - name: Tidy Go modules
+        run: go mod tidy
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm install
+
+      - name: Download latest sing-box
+        shell: pwsh
+        run: |
+          $apiUrl = "https://api.github.com/repos/163jm/singbox-slim/releases/latest"
+          $headers = @{ "User-Agent" = "sm-gui-builder" }
+          $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+          $tag = $release.tag_name
+          Write-Host "Latest sing-box version: $tag"
+
+          $assetName = "sing-box-$($tag.TrimStart('v'))-windows-amd64.zip"
+          $asset = $release.assets | Where-Object { $_.name -eq $assetName }
+          if (-not $asset) {
+            Write-Error "Asset $assetName not found"
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path "bin"
+          $zipPath = "sing-box.zip"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath "sing-box-extracted" -Force
+          $singboxExe = Get-ChildItem -Path "sing-box-extracted" -Recurse -Filter "sing-box.exe" | Select-Object -First 1
+          Copy-Item $singboxExe.FullName -Destination "bin\sing-box.exe"
+          Write-Host "sing-box.exe downloaded to bin\"
+
+      - name: Download latest mihomo
+        shell: pwsh
+        run: |
+          $apiUrl = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+          $headers = @{ "User-Agent" = "sm-gui-builder" }
+          $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+          $tag = $release.tag_name
+          Write-Host "Latest mihomo version: $tag"
+
+          # 匹配 mihomo-windows-amd64-v*.zip（排除 compatible / go120 等变体）
+          $asset = $release.assets | Where-Object { $_.name -like "mihomo-windows-amd64-v*.zip" -and $_.name -notlike "*compatible*" } | Select-Object -First 1
+          if (-not $asset) {
+            Write-Error "mihomo windows-amd64 asset not found"
+            exit 1
+          }
+          Write-Host "Asset: $($asset.name)"
+
+          New-Item -ItemType Directory -Force -Path "bin"
+          $zipPath = "mihomo.zip"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath "mihomo-extracted" -Force
+          $mihomoExe = Get-ChildItem -Path "mihomo-extracted" -Recurse -Filter "mihomo-windows-amd64-*.exe" | Select-Object -First 1
+          if (-not $mihomoExe) {
+            Write-Error "mihomo.exe not found in archive"
+            exit 1
+          }
+          Copy-Item $mihomoExe.FullName -Destination "bin\mihomo.exe"
+          Write-Host "mihomo.exe downloaded to bin\"
+
+      - name: Build Wails app
+        run: wails build -platform windows/amd64 -ldflags "-H windowsgui" -o sm-gui.exe
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          # 内置路由必需的规则文件（与 README 中的清单一致），缺任何一个直接失败
+          $required = @(
+            "geosite-cn", "geosite-google", "geosite-gfw", "geosite-greatfire",
+            "geoip-cn", "geoip-facebook", "geoip-fastly", "geoip-google",
+            "geoip-netflix", "geoip-telegram", "geoip-twitter"
+          )
+          foreach ($t in $required) {
+            if (-not (Test-Path "ruleset\srs\$t.srs")) { Write-Error "缺少 ruleset\srs\$t.srs"; exit 1 }
+            if (-not (Test-Path "ruleset\mrs\$t.mrs")) { Write-Error "缺少 ruleset\mrs\$t.mrs"; exit 1 }
+          }
+          Write-Host "规则文件校验通过 ($($required.Count) 组)"
+
+          New-Item -ItemType Directory -Force -Path "release\sm-gui"
+          Copy-Item "build\bin\sm-gui.exe" "release\sm-gui\"
+          Copy-Item -Recurse "bin" "release\sm-gui\bin"
+          New-Item -ItemType Directory -Force -Path "release\sm-gui\data"
+          # 内置路由规则集 → run/rules/（程序合成内置配置时按此相对位置引用）
+          New-Item -ItemType Directory -Force -Path "release\sm-gui\run\rules\srs"
+          New-Item -ItemType Directory -Force -Path "release\sm-gui\run\rules\mrs"
+          Copy-Item "ruleset\srs\*" "release\sm-gui\run\rules\srs\"
+          Copy-Item "ruleset\mrs\*" "release\sm-gui\run\rules\mrs\"
+          Write-Host "run\rules 已生成: srs=$((Get-ChildItem release\sm-gui\run\rules\srs).Count) 个, mrs=$((Get-ChildItem release\sm-gui\run\rules\mrs).Count) 个"
+          Copy-Item "README.md" "release\sm-gui\" -ErrorAction SilentlyContinue
+
+          # Create example config
+          $exampleConfig = @'
+          {
+            "log": { "level": "info" },
+            "dns": {
+              "servers": [
+                { "tag": "google", "address": "8.8.8.8" }
+              ]
+            },
+            "inbounds": [],
+            "outbounds": [
+              {
+                "type": "vless",
+                "tag": "proxy",
+                "server": "your-server.com",
+                "server_port": 443,
+                "uuid": "your-uuid-here",
+                "tls": { "enabled": true }
+              },
+              { "type": "direct", "tag": "direct" },
+              { "type": "block",  "tag": "block"  }
+            ],
+            "route": {
+              "rules": [
+                { "geosite": ["cn"], "outbound": "direct" }
+              ],
+              "final": "proxy"
+            }
+          }
+          '@
+          $exampleConfig | Out-File -FilePath "release\sm-gui\config.example.json" -Encoding UTF8
+
+          Compress-Archive -Path "release\sm-gui" -DestinationPath "sm-gui-windows-amd64.zip"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: test
+          name: test
+          files: sm-gui-windows-amd64.zip
