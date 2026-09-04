@@ -17,7 +17,7 @@ PrivilegesRequired=lowest
 DefaultDirName={localappdata}\Programs\SM GUI
 DefaultGroupName=SM GUI
 ; Inno 的路径相对于本 .iss 文件所在目录（build\），仓库根是 ..
-OutputDir=..
+OutputDir=..\release
 OutputBaseFilename=SM-GUI-{#AppVersion}-setup
 Compression=lzma2
 SolidCompression=yes
