@@ -169,6 +169,17 @@ func getBuiltinRulesDir() string {
 	return filepath.Join(getRunDir(), "rules")
 }
 
+// currentConfigPath 返回当前内核选中配置文件的完整路径。
+// Settings 里只存 configs 目录下的文件名（保证移动程序目录后设置仍有效），
+// 完整路径在需要读文件时再拼接。
+func (a *App) currentConfigPath() string {
+	name := a.cfgManager.Settings.ActiveConfigPath()
+	if name == "" {
+		return ""
+	}
+	return filepath.Join(getConfigsDir(), name)
+}
+
 // generateBuiltinRunConfig 合成内置路由模式的配置并写入 run 目录。
 func (a *App) generateBuiltinRunConfig(core string) error {
 	s := a.cfgManager.Settings
@@ -297,7 +308,7 @@ func (a *App) SelectConfigFile(name string) (string, error) {
 
 		// 选真实配置文件 = 路由回到 custom 模式
 		s.RoutingMode = config.ModeCustom
-		s.SetCoreConfigPath(core, full)
+		s.SetCoreConfigPath(core, name)
 		a.cfgManager.Settings = s
 		if err := a.cfgManager.Save(); err != nil {
 			return "", fmt.Errorf("保存设置失败: %v", err)
@@ -539,7 +550,7 @@ func (a *App) ApplyNode(id string) error {
 	return guardE("ApplyNode", func() error {
 		s := a.cfgManager.Settings
 		core := s.Core
-		cfgPath := s.ConfigPath
+		cfgPath := a.currentConfigPath()
 		builtin := config.IsBuiltinMode(s.RoutingMode)
 		if cfgPath == "" && !builtin {
 			return fmt.Errorf("未选择配置文件")
@@ -672,10 +683,10 @@ func (a *App) GetAppliedNodeID() string {
 		if config.IsBuiltinMode(s.RoutingMode) {
 			return s.AppliedNodeID
 		}
-		if s.ConfigPath == "" {
+		if s.ActiveConfigPath() == "" {
 			return ""
 		}
-		return config.FindAppliedNodeID(s.Core, s.ConfigPath, a.nodeStore.GetAll())
+		return config.FindAppliedNodeID(s.Core, a.currentConfigPath(), a.nodeStore.GetAll())
 	})
 }
 
@@ -762,7 +773,7 @@ func (a *App) EnableTun() error {
 	return guardE("EnableTun", func() error {
 		s := a.cfgManager.Settings
 		core := s.Core
-		cfgPath := s.ConfigPath
+		cfgPath := a.currentConfigPath()
 		builtin := config.IsBuiltinMode(s.RoutingMode)
 		if cfgPath == "" && !builtin {
 			return fmt.Errorf("未选择配置文件")
@@ -806,7 +817,7 @@ func (a *App) DisableTun() error {
 	return guardE("DisableTun", func() error {
 		s := a.cfgManager.Settings
 		core := s.Core
-		cfgPath := s.ConfigPath
+		cfgPath := a.currentConfigPath()
 		builtin := config.IsBuiltinMode(s.RoutingMode)
 		if cfgPath == "" && !builtin {
 			return fmt.Errorf("未选择配置文件")
@@ -849,7 +860,7 @@ func (a *App) EnableSystemProxy() error {
 	return guardE("EnableSystemProxy", func() error {
 		s := a.cfgManager.Settings
 		core := s.Core
-		cfgPath := s.ConfigPath
+		cfgPath := a.currentConfigPath()
 		builtin := config.IsBuiltinMode(s.RoutingMode)
 		if cfgPath == "" && !builtin {
 			return fmt.Errorf("未选择配置文件")
@@ -967,7 +978,7 @@ func (a *App) startCore() error {
 	s := a.cfgManager.Settings
 	core := s.Core
 	// 内置模式没有用户配置文件，配置由模板合成
-	if s.ConfigPath == "" && !config.IsBuiltinMode(s.RoutingMode) {
+	if s.ActiveConfigPath() == "" && !config.IsBuiltinMode(s.RoutingMode) {
 		return fmt.Errorf("未选择配置文件")
 	}
 	binPath := getCoreBin(core)
@@ -977,7 +988,7 @@ func (a *App) startCore() error {
 		}
 		return fmt.Errorf("未找到 sing-box 内核: %s（请将 sing-box.exe 放入 bin 目录）", binPath)
 	}
-	if err := a.syncRunConfig(core, s.ConfigPath); err != nil {
+	if err := a.syncRunConfig(core, a.currentConfigPath()); err != nil {
 		return err
 	}
 	ensureRunDir()
@@ -1032,7 +1043,7 @@ func (a *App) GetConfigPreview() (string, error) {
 			}
 			data, ext = d, filepath.Ext(p)
 		} else {
-			cfgPath := a.cfgManager.Settings.ConfigPath
+			cfgPath := a.currentConfigPath()
 			if cfgPath == "" {
 				return "", fmt.Errorf("未选择配置文件")
 			}

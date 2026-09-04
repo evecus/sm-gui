@@ -134,7 +134,7 @@ func (s *Settings) applyDefaults() {
 	}
 }
 
-// ActiveConfigPath 返回当前内核记忆的配置文件路径。
+// ActiveConfigPath 返回当前内核记忆的配置文件名（configs 目录下，非完整路径）。
 func (s *Settings) ActiveConfigPath() string {
 	if s.Core == CoreMihomo {
 		return s.ConfigPathMihomo
@@ -142,14 +142,14 @@ func (s *Settings) ActiveConfigPath() string {
 	return s.ConfigPathSingBox
 }
 
-// SetCoreConfigPath 记录指定内核的配置文件路径（同时同步旧字段 ConfigPath）。
-func (s *Settings) SetCoreConfigPath(core, path string) {
+// SetCoreConfigPath 记录指定内核的配置文件名（同时同步旧字段 ConfigPath）。
+func (s *Settings) SetCoreConfigPath(core, name string) {
 	if core == CoreMihomo {
-		s.ConfigPathMihomo = path
+		s.ConfigPathMihomo = name
 	} else {
-		s.ConfigPathSingBox = path
+		s.ConfigPathSingBox = name
 	}
-	s.ConfigPath = path
+	s.ConfigPath = name
 }
 
 // Validate 校验设置合法性（保存前调用）。
@@ -237,8 +237,26 @@ func (m *Manager) Load() error {
 			m.Settings.ConfigPathSingBox = m.Settings.ConfigPath
 		}
 	}
+	// 路径迁移：配置文件路径只存 configs 目录下的文件名（历史版本存绝对路径，
+	// 移动程序目录后会失效），加载时统一归一化为文件名，完整路径使用时再拼接。
+	for _, p := range []*string{&m.Settings.ConfigPath, &m.Settings.ConfigPathSingBox, &m.Settings.ConfigPathMihomo} {
+		*p = normalizeConfigPath(*p)
+	}
 	m.Settings.applyDefaults()
 	return nil
+}
+
+// normalizeConfigPath 把历史存储的配置路径归一化为 configs 目录下的文件名。
+// 绝对路径或含分隔符的相对路径只取文件名（configs 目录位置固定，文件名即可定位）。
+func normalizeConfigPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if filepath.IsAbs(p) || strings.ContainsAny(p, `/\`) {
+		return filepath.Base(p)
+	}
+	return p
 }
 
 func (m *Manager) Save() error {
