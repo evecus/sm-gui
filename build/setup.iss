@@ -16,7 +16,8 @@ AppPublisherURL=https://github.com/evecus/sm-gui
 PrivilegesRequired=lowest
 DefaultDirName={localappdata}\Programs\SM GUI
 DefaultGroupName=SM GUI
-OutputDir=release
+; Inno 的路径相对于本 .iss 文件所在目录（build\），仓库根是 ..
+OutputDir=..
 OutputBaseFilename=SM-GUI-{#AppVersion}-setup
 Compression=lzma2
 SolidCompression=yes
@@ -30,7 +31,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 ; 整个暂存目录（sm-gui.exe、bin\、run\rules\、README、config.example.json）
-Source: "release\sm-gui\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\release\sm-gui\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{autoprograms}\SM GUI"; Filename: "{app}\sm-gui.exe"
