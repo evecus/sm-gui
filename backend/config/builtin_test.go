@@ -131,6 +131,11 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 		if route["final"] != c.wantFinal {
 			t.Errorf("[%s] route.final = %v, want %s", c.mode, route["final"], c.wantFinal)
 		}
+		// default_domain_resolver 必须指向直连 DNS
+		dds, ok := route["default_domain_resolver"].(map[string]interface{})
+		if !ok || dds["server"] != "dns-local" {
+			t.Errorf("[%s] route.default_domain_resolver 应为 {server: dns-local}, got %v", c.mode, route["default_domain_resolver"])
+		}
 		// sniff 必须是首条规则
 		rules := route["rules"].([]interface{})
 		first := rules[0].(map[string]interface{})

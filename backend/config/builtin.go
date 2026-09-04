@@ -327,6 +327,8 @@ func buildBuiltinSingBoxRoute(opts BuiltinOptions) map[string]interface{} {
 	route := map[string]interface{}{
 		"rules": rules,
 		"final": final,
+		// 域名默认解析器指向直连 DNS（sing-box 1.12 必需字段，缺省时域名出站解析无依据）
+		"default_domain_resolver": map[string]interface{}{"server": "dns-local"},
 	}
 	if ruleSet != nil {
 		route["rule_set"] = ruleSet
