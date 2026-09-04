@@ -69,6 +69,8 @@
    - 需要的 tag：绕过大陆 = `geosite-private` `geoip-private` `geosite-cn` `geosite-google` `geoip-cn`；GFW列表 = `geosite-private` `geoip-private` `geosite-google` `geosite-gfw` `geosite-greatfire` `geoip-facebook` `geoip-fastly` `geoip-google` `geoip-netflix` `geoip-telegram` `geoip-twitter`；全局代理（mihomo）= `geosite-private` `geoip-private`（sing-box 全局用原生 `ip_is_private`，无需规则文件）
 3. sing-box 内核要求 **≥ 1.12**（rule action / dns rule_set 语法）
 
+内置配置同时启用 **clash-api**（`127.0.0.1:9090`，无密码），内核启动后浏览器打开 `http://127.0.0.1:9090/ui` 可访问管理面板（面板文件位于 `run/ui`，sing-box 首次启动会自动下载默认面板）。
+
 ## 从源码编译
 
 ```bash

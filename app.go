@@ -193,7 +193,10 @@ func (a *App) generateBuiltinRunConfig(core string) error {
 		ProxyListen:    s.ProxyListen,
 		ProxyPort:      s.ProxyPort,
 		RulesDir:       getBuiltinRulesDir(),
+		UIDir:          filepath.Join(getRunDir(), "ui"),
 	}
+	// clash-api external-ui 目录（sing-box 目录为空时会自动下载默认面板）
+	os.MkdirAll(filepath.Join(getRunDir(), "ui"), 0755)
 	data, err := config.BuildBuiltinConfig(core, opts, n)
 	if err != nil {
 		return err

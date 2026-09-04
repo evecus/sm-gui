@@ -111,7 +111,7 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 	base := BuiltinOptions{
 		TunStack: "gvisor", TunMTU: 9000, TunStrictRoute: true,
 		ProxyEnabled: true, ProxyListen: "127.0.0.1", ProxyPort: 2080,
-		RulesDir: "/run/rules",
+		RulesDir: "/run/rules", UIDir: "/run/ui",
 	}
 	cases := []struct {
 		mode      string
@@ -198,6 +198,17 @@ func TestBuildBuiltinSingBox(t *testing.T) {
 		if len(obs) != 2 {
 			t.Errorf("[%s] outbounds 应为 [proxy direct], got %d 个", c.mode, len(obs))
 		}
+		// 日志等级 / clash-api
+		if lg := cfg["log"].(map[string]interface{}); lg["level"] != "warning" {
+			t.Errorf("[%s] log.level = %v, want warning", c.mode, lg["level"])
+		}
+		api := cfg["experimental"].(map[string]interface{})["clash_api"].(map[string]interface{})
+		if api["external_controller"] != "127.0.0.1:9090" || api["secret"] != "" {
+			t.Errorf("[%s] clash_api 配置错误: %v", c.mode, api)
+		}
+		if api["external_ui"] != "/run/ui" {
+			t.Errorf("[%s] clash_api.external_ui = %v, want /run/ui", c.mode, api["external_ui"])
+		}
 		// inbounds: mixed + tun
 		ibs := cfg["inbounds"].([]interface{})
 		kinds := map[string]bool{}
@@ -229,7 +240,7 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 	base := BuiltinOptions{
 		TunStack: "gvisor", TunMTU: 9000,
 		ProxyEnabled: true, ProxyListen: "127.0.0.1", ProxyPort: 2080,
-		RulesDir: "/run/rules",
+		RulesDir: "/run/rules", UIDir: "/run/ui",
 	}
 	cases := []struct {
 		mode       string
@@ -328,6 +339,16 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		dns := cfg["dns"].(map[string]interface{})
 		if dns["enable"] != true || dns["enhanced-mode"] != "fake-ip" {
 			t.Errorf("[%s] dns 应为启用的 fake-ip 模式", c.mode)
+		}
+		// 日志等级 / clash-api
+		if cfg["log-level"] != "warning" {
+			t.Errorf("[%s] log-level = %v, want warning", c.mode, cfg["log-level"])
+		}
+		if cfg["external-controller"] != "127.0.0.1:9090" || cfg["secret"] != "" {
+			t.Errorf("[%s] clash-api 配置错误: controller=%v secret=%v", c.mode, cfg["external-controller"], cfg["secret"])
+		}
+		if cfg["external-ui"] != "/run/ui" {
+			t.Errorf("[%s] external-ui = %v, want /run/ui", c.mode, cfg["external-ui"])
 		}
 	}
 }

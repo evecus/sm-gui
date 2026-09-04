@@ -207,11 +207,17 @@ type BuiltinOptions struct {
 	TunStack       string
 	TunMTU         int
 	TunStrictRoute bool
-	ProxyEnabled   bool // 系统代理开关（决定 mixed inbound / mixed-port）
+	ProxyEnabled   bool   // 系统代理开关（决定 mixed inbound / mixed-port）
 	ProxyListen    string
 	ProxyPort      int
 	RulesDir       string // run/rules 绝对路径
+	UIDir          string // clash-api 的 external-ui 绝对路径（run/ui）
 }
+
+// clashAPIListen / 生成配置的固定参数。
+const (
+	clashAPIListen = "127.0.0.1:9090" // clash-api 监听地址（固定端口 9090，无密码）
+)
 
 // BuildBuiltinConfig 按内核生成内置模式配置（JSON for sing-box / YAML for mihomo）。
 func BuildBuiltinConfig(core string, opts BuiltinOptions, n *node.Node) ([]byte, error) {
@@ -246,11 +252,20 @@ func buildBuiltinSingBox(opts BuiltinOptions, n *node.Node) ([]byte, error) {
 	proxyOut["tag"] = "proxy"
 
 	cfg := map[string]interface{}{
-		"log": map[string]interface{}{"level": "info", "timestamp": true},
+		"log": map[string]interface{}{"level": "warning", "timestamp": true},
 		"dns": buildBuiltinSingBoxDNS(opts.Mode),
 		"inbounds":  buildBuiltinSingBoxInbounds(opts),
 		"outbounds": []interface{}{proxyOut, map[string]interface{}{"type": "direct", "tag": "direct"}},
 		"route":     buildBuiltinSingBoxRoute(opts),
+		// clash-api：面板可访问 http://127.0.0.1:9090/ui，无密码
+		"experimental": map[string]interface{}{
+			"clash_api": map[string]interface{}{
+				"external_controller": clashAPIListen,
+				"external_ui":         opts.UIDir,
+				"secret":              "",
+				"default_mode":        "rule",
+			},
+		},
 	}
 	return marshalJSON(cfg)
 }
@@ -398,11 +413,15 @@ func buildBuiltinMihomo(opts BuiltinOptions, n *node.Node) ([]byte, error) {
 	proxy["name"] = mihomoProxyName
 
 	cfg := map[string]interface{}{
-		"mode":         "rule",
-		"log-level":    "info",
-		"proxies":      []interface{}{proxy},
-		"proxy-groups": []interface{}{map[string]interface{}{"name": mihomoGroupName, "type": "select", "proxies": []interface{}{mihomoProxyName, "DIRECT"}}},
-		"dns":          buildBuiltinMihomoDNS(),
+		"mode":      "rule",
+		"log-level": "warning",
+		// clash-api：面板可访问 http://127.0.0.1:9090/ui，无密码
+		"external-controller": clashAPIListen,
+		"external-ui":         opts.UIDir,
+		"secret":              "",
+		"proxies":             []interface{}{proxy},
+		"proxy-groups":        []interface{}{map[string]interface{}{"name": mihomoGroupName, "type": "select", "proxies": []interface{}{mihomoProxyName, "DIRECT"}}},
+		"dns":                 buildBuiltinMihomoDNS(),
 	}
 	appendBuiltinMihomoMixed(cfg, opts)
 	if opts.TunEnabled {
