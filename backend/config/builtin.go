@@ -421,7 +421,7 @@ func buildBuiltinMihomo(opts BuiltinOptions, n *node.Node) ([]byte, error) {
 		"secret":              "",
 		"proxies":             []interface{}{proxy},
 		"proxy-groups":        []interface{}{map[string]interface{}{"name": mihomoGroupName, "type": "select", "proxies": []interface{}{mihomoProxyName, "DIRECT"}}},
-		"dns":                 buildBuiltinMihomoDNS(),
+		"dns":                 buildBuiltinMihomoDNS(opts.Mode),
 	}
 	appendBuiltinMihomoMixed(cfg, opts)
 	if opts.TunEnabled {
@@ -431,18 +431,44 @@ func buildBuiltinMihomo(opts BuiltinOptions, n *node.Node) ([]byte, error) {
 	return marshalYAML(cfg)
 }
 
-// buildBuiltinMihomoDNS fake-ip DNS（三种模式共用：直连流量经国内 DNS 解析，
-// 代理流量由远端解析；proxy-server-nameserver 保证代理服务器域名不走 fake-ip）。
-func buildBuiltinMihomoDNS() map[string]interface{} {
-	return map[string]interface{}{
-		"enable":                 true,
-		"enhanced-mode":          "fake-ip",
-		"fake-ip-range":          "198.18.0.1/16",
-		"fake-ip-filter":         []interface{}{"*.lan", "*.local", "*.localdomain", "+.msftconnecttest.com", "+.msftncsi.com", "time.*.com", "time.*.gov", "time.*.edu.cn", "+.ntp.org", "+.pool.ntp.org", "ntp1.aliyun.com"},
-		"fake-ip-filter-mode":    "blacklist",
-		"nameserver":             []interface{}{"223.5.5.5", "119.29.29.29"},
-		"proxy-server-nameserver": []interface{}{"223.5.5.5"},
+// buildBuiltinMihomoDNS redir-host DNS + nameserver-policy 分流（mihomo 写法）。
+//   - 绕过大陆：默认 nameserver = 两个代理 DNS（#PROXY 经代理组出站，避免 UDP 53 直连被污染），
+//     直连域名规则集（geosite-cn / geosite-private）→ 两个直连 DNS；
+//   - GFW列表 / 全局：默认 nameserver = 两个直连 DNS，
+//     代理域名规则集（geosite-gfw / greatfire / google）→ 两个代理 DNS。
+// fake-ip 模式后续连同 sing-box 一起做。
+func buildBuiltinMihomoDNS(mode string) map[string]interface{} {
+	directDNS := []interface{}{"223.5.5.5", "119.29.29.29"}
+	proxyDNS := []interface{}{"1.1.1.1#PROXY", "8.8.8.8#PROXY"}
+
+	dns := map[string]interface{}{
+		"enable":                  true,
+		"enhanced-mode":           "redir-host",
+		"nameserver":              directDNS,
+		"proxy-server-nameserver": directDNS,
 	}
+
+	var policy map[string]interface{}
+	switch mode {
+	case ModeBypass:
+		dns["nameserver"] = proxyDNS
+		policy = map[string]interface{}{
+			"rule-set:geosite-private": directDNS,
+			"rule-set:geosite-cn":      directDNS,
+		}
+	case ModeBlacklist:
+		policy = map[string]interface{}{
+			"rule-set:geosite-google":    proxyDNS,
+			"rule-set:geosite-gfw":       proxyDNS,
+			"rule-set:geosite-greatfire": proxyDNS,
+		}
+	case ModeGlobal:
+		// 全部走代理，无代理域名规则集，默认直连 DNS 即可
+	}
+	if len(policy) > 0 {
+		dns["nameserver-policy"] = policy
+	}
+	return dns
 }
 
 // buildBuiltinMihomoTun TUN 配置（对齐 SetTunMihomo 写入的字段）。

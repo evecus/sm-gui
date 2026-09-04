@@ -37,6 +37,48 @@ func toStringSlice(v []interface{}) []string {
 	return out
 }
 
+// assertMihomoDNS 校验各模式 mihomo DNS：redir-host + nameserver-policy 分流策略。
+func assertMihomoDNS(t *testing.T, mode string, dnsV interface{}) {
+	t.Helper()
+	dns, ok := dnsV.(map[string]interface{})
+	if !ok {
+		t.Fatalf("[%s] dns 段缺失", mode)
+	}
+	if dns["enable"] != true || dns["enhanced-mode"] != "redir-host" {
+		t.Fatalf("[%s] dns 应为启用的 redir-host 模式", mode)
+	}
+	direct := []interface{}{"223.5.5.5", "119.29.29.29"}
+	proxy := []interface{}{"1.1.1.1#PROXY", "8.8.8.8#PROXY"}
+	policy, hasPolicy := dns["nameserver-policy"].(map[string]interface{})
+	switch mode {
+	case ModeBypass:
+		if len(toStringSlice(dns["nameserver"].([]interface{}))) == 0 ||
+			dns["nameserver"].([]interface{})[0] != proxy[0] {
+			t.Errorf("[%s] nameserver 应为代理 DNS, got %v", mode, dns["nameserver"])
+		}
+		if !hasPolicy || len(policy["rule-set:geosite-cn"].([]interface{})) != 2 {
+			t.Errorf("[%s] nameserver-policy 应含 rule-set:geosite-cn → 直连 DNS", mode)
+		}
+	case ModeBlacklist:
+		if dns["nameserver"].([]interface{})[0] != direct[0] {
+			t.Errorf("[%s] nameserver 应为直连 DNS", mode)
+		}
+		if !hasPolicy || len(policy["rule-set:geosite-gfw"].([]interface{})) != 2 {
+			t.Errorf("[%s] nameserver-policy 应含 rule-set:geosite-gfw → 代理 DNS", mode)
+		}
+		if policy != nil && policy["rule-set:geosite-cn"] != nil {
+			t.Errorf("[%s] blacklist 不应把 cn 规则集写进 DNS 策略", mode)
+		}
+	case ModeGlobal:
+		if dns["nameserver"].([]interface{})[0] != direct[0] {
+			t.Errorf("[%s] nameserver 应为直连 DNS", mode)
+		}
+		if hasPolicy {
+			t.Errorf("[%s] global 不应有 nameserver-policy", mode)
+		}
+	}
+}
+
 // 测试用节点（vless，带 RawOutbound / RawClashProxy 两条路径都覆盖）
 func testNode() *node.Node {
 	return &node.Node{
@@ -336,10 +378,6 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		if tun["enable"] != true || tun["auto-route"] != true {
 			t.Errorf("[%s] tun 配置不完整: %v", c.mode, tun)
 		}
-		dns := cfg["dns"].(map[string]interface{})
-		if dns["enable"] != true || dns["enhanced-mode"] != "fake-ip" {
-			t.Errorf("[%s] dns 应为启用的 fake-ip 模式", c.mode)
-		}
 		// 日志等级 / clash-api
 		if cfg["log-level"] != "warning" {
 			t.Errorf("[%s] log-level = %v, want warning", c.mode, cfg["log-level"])
@@ -350,6 +388,8 @@ func TestBuildBuiltinMihomo(t *testing.T) {
 		if cfg["external-ui"] != "/run/ui" {
 			t.Errorf("[%s] external-ui = %v, want /run/ui", c.mode, cfg["external-ui"])
 		}
+		// DNS：redir-host + nameserver-policy 分流
+		assertMihomoDNS(t, c.mode, cfg["dns"])
 	}
 }
 
