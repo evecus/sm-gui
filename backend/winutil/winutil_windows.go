@@ -48,6 +48,28 @@ func WaitForTaskbar(timeout time.Duration) bool {
 	}
 }
 
+// CurrentThreadID 返回当前线程 ID（托盘消息循环所在的锁定线程）。
+func CurrentThreadID() uint32 {
+	return windows.GetCurrentThreadId()
+}
+
+// PostThreadQuit 向指定线程投递 WM_QUIT，让阻塞在 GetMessage 的
+// 消息循环退出（用于托盘 ready 超时后的重试）。
+func PostThreadQuit(threadID uint32) error {
+	const WM_QUIT = 0x0012
+	procPostThreadMessage := user32.NewProc("PostThreadMessageW")
+	res, _, err := procPostThreadMessage.Call(
+		uintptr(threadID),
+		WM_QUIT,
+		0,
+		0,
+	)
+	if res == 0 {
+		return err
+	}
+	return nil
+}
+
 // IsAdmin 报告当前进程是否以管理员（UAC 提权）身份运行。
 func IsAdmin() bool {
 	return windows.GetCurrentProcessToken().IsElevated()

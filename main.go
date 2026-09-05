@@ -2,7 +2,10 @@ package main
 
 import (
 	"embed"
+	"io"
+	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -14,6 +17,15 @@ import (
 var assets embed.FS
 
 func main() {
+	// GUI 子系统下 stderr 不可见：systray 等库的失败只走标准 log，
+	// 重定向到 data/tray.log 才能拿到托盘注册失败的具体原因。
+	if f, err := os.OpenFile(filepath.Join(getDataDir(), "tray.log"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		defer f.Close()
+		log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+		log.SetOutput(io.MultiWriter(f, os.Stderr))
+	}
+
 	app := NewApp()
 
 	// 开机自启动（静默模式）带 --silent 参数：不显示主窗口，仅托盘图标。

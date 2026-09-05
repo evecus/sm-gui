@@ -11,6 +11,10 @@ import (
 
 func IsAdmin() bool { return true }
 
+func CurrentThreadID() uint32 { return 0 }
+
+func PostThreadQuit(threadID uint32) error { return nil }
+
 func LaunchElevated(exe, args string) error {
 	return errNotSupported()
 }

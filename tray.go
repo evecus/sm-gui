@@ -23,6 +23,9 @@ var appCtx context.Context
 // trayQuitting 标记应用正在退出：托盘消息循环正常返回时不再重试。
 var trayQuitting atomic.Bool
 
+// trayReady 标记本次 systray.Run 的 onTrayReady 是否已触发。
+var trayReady atomic.Bool
+
 // trayLog 把托盘生命周期事件写入 data/tray.log（带时间戳），
 // 用于排查自启动场景下托盘图标空白/无响应的问题。
 func trayLog(format string, args ...interface{}) {
@@ -57,11 +60,25 @@ func setupTray(ctx context.Context) {
 		ok := winutil.WaitForTaskbar(60 * time.Second)
 		trayLog("wait taskbar: ok=%v elapsed=%v", ok, time.Since(t0).Round(time.Millisecond))
 
-		// 消息循环若因 GetMessage 错误提前返回（库内只打 stderr，进程无感知），
-		// 会导致图标在但点击无响应——这里检测并重试。
+		// 注册失败自愈：registerSystray 中任一 Win32 调用失败时，库只往
+		// stderr 打一行日志就早退，nativeLoop 照样空转（图标空白、点击无响应、
+		// ready 永不触发）。看门狗检测 ready 超时后向托盘线程投递 WM_QUIT，
+		// 让 Run 返回并重试注册。
+		tid := winutil.CurrentThreadID()
 		for attempt := 1; attempt <= 3; attempt++ {
+			trayReady.Store(false)
 			trayLog("systray.Run start (attempt %d)", attempt)
+			watchdog := time.AfterFunc(10*time.Second, func() {
+				if trayReady.Load() || trayQuitting.Load() {
+					return
+				}
+				trayLog("ready 超时（10s 未触发 onTrayReady），投递 WM_QUIT 重试")
+				if err := winutil.PostThreadQuit(tid); err != nil {
+					trayLog("PostThreadQuit 失败: %v", err)
+				}
+			})
 			systray.Run(onTrayReady, onTrayExit)
+			watchdog.Stop()
 			trayLog("systray.Run returned (quitting=%v)", trayQuitting.Load())
 			if trayQuitting.Load() {
 				return
@@ -79,6 +96,7 @@ func stopTray() {
 }
 
 func onTrayReady() {
+	trayReady.Store(true)
 	trayLog("onTrayReady: 注册图标/菜单")
 	systray.SetIcon(trayIconBytes())
 	systray.SetTooltip("SM GUI")
