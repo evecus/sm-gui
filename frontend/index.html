@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SM GUI</title>
+    <script>
+      // 启动前同步系统深浅色，避免首帧闪白/闪黑
+      (function () {
+        try {
+          var mq = window.matchMedia('(prefers-color-scheme: dark)');
+          var apply = function () {
+            document.documentElement.dataset.theme = mq.matches ? 'dark' : 'light';
+          };
+          apply();
+          mq.addEventListener('change', apply);
+        } catch (e) { /* ignore */ }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

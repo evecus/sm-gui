@@ -1,0 +1,176 @@
+/* ============================================================
+   SM GUI — 设计令牌 & 全局基础样式
+   浅色为默认，深色通过 html[data-theme='dark'] 覆盖
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* 背景层级 */
+  --bg-0: #f7f8fc;          /* 主背景 */
+  --bg-1: #ffffff;          /* 顶栏 / 底栏 / 卡片 */
+  --bg-2: #f1f2f9;          /* 次级面板 / 弹窗体 */
+  --bg-3: #e7e9f4;          /* hover / 嵌入块 */
+  --bg-glass: rgba(255, 255, 255, 0.72);
+
+  /* 边框 */
+  --border: #e4e6f1;
+  --border-light: #d2d6e8;
+
+  /* 主题色 */
+  --accent: #5b7cfa;
+  --accent-hover: #4665e8;
+  --accent-dim: rgba(91, 124, 250, 0.11);
+  --accent-ring: rgba(91, 124, 250, 0.28);
+
+  /* 语义色 */
+  --green: #1fb76a;
+  --green-dim: rgba(31, 183, 106, 0.12);
+  --red: #e5484d;
+  --red-dim: rgba(229, 72, 77, 0.12);
+  --yellow: #c98a04;
+  --yellow-dim: rgba(222, 154, 6, 0.14);
+
+  /* 文字 */
+  --text-0: #191c2b;
+  --text-1: #4c5270;
+  --text-2: #878da9;
+  --text-3: #c3c7dd;
+
+  /* 字体（本机字体栈，离线可用） */
+  --font: 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  --mono: 'Cascadia Code', 'Cascadia Mono', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+
+  /* 圆角 / 阴影 */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(23, 26, 43, 0.06), 0 1px 6px rgba(23, 26, 43, 0.05);
+  --shadow: 0 4px 12px rgba(23, 26, 43, 0.08), 0 12px 40px rgba(23, 26, 43, 0.10);
+  --shadow-lg: 0 8px 24px rgba(23, 26, 43, 0.12), 0 24px 64px rgba(23, 26, 43, 0.14);
+
+  /* 动效 */
+  --ease: cubic-bezier(0.25, 0.7, 0.3, 1);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23878da9' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  color-scheme: light;
+}
+
+/* ─── 深色主题 ─────────────────────────────────────────────── */
+html[data-theme='dark'] {
+  --bg-0: #111318;
+  --bg-1: #171a22;
+  --bg-2: #1d212c;
+  --bg-3: #262b39;
+  --bg-glass: rgba(23, 26, 34, 0.72);
+
+  --border: #262b3a;
+  --border-light: #363c52;
+
+  --accent: #7b95ff;
+  --accent-hover: #94a9ff;
+  --accent-dim: rgba(123, 149, 255, 0.14);
+  --accent-ring: rgba(123, 149, 255, 0.35);
+
+  --green: #3ddc84;
+  --green-dim: rgba(61, 220, 132, 0.14);
+  --red: #ff6b6f;
+  --red-dim: rgba(255, 107, 111, 0.14);
+  --yellow: #f0b13d;
+  --yellow-dim: rgba(240, 177, 61, 0.14);
+
+  --text-0: #e9ebf5;
+  --text-1: #a6abc6;
+  --text-2: #71768f;
+  --text-3: #4a4f66;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.40), 0 12px 40px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45), 0 24px 64px rgba(0, 0, 0, 0.55);
+
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a6abc6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.25s var(--ease), color 0.25s var(--ease);
+}
+
+/* ─── 滚动条 ───────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); background-clip: padding-box; }
+
+/* ─── 全局焦点环 ───────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+button, input, textarea, select { cursor: pointer; font-family: var(--font); }
+input, textarea { cursor: text; }
+
+/* ─── 原生 select 下拉框现代化 ─────────────────────────────── */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bg-2);
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-0);
+  font-size: 12px;
+  padding: 6px 28px 6px 10px;
+  outline: none;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+select:hover { border-color: var(--border-light); background-color: var(--bg-3); }
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+select:disabled { opacity: 0.5; cursor: not-allowed; }
+select option {
+  background: var(--bg-1);
+  color: var(--text-0);
+}
+
+/* ─── 全局输入框现代化 ─────────────────────────────────────── */
+input:not([type='checkbox']):not([type='radio']), textarea {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  outline: none;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+input:not([type='checkbox']):not([type='radio']):focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+input::placeholder, textarea::placeholder { color: var(--text-3); }
+
+input[type='checkbox'], input[type='radio'] {
+  accent-color: var(--accent);
+}
+
+/* ─── 文本选择色 ───────────────────────────────────────────── */
+::selection { background: var(--accent-dim); color: var(--text-0); }

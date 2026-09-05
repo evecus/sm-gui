@@ -1,0 +1,112 @@
+/* ─── 设置页面（与节点列表/日志同级的页面，非弹窗） ───────────────────── */
+
+.settings-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.settings-panel-body .settings-row {
+  flex-wrap: wrap;
+}
+
+.settings-panel-body .settings-input {
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
+}
+
+.settings-panel-body select.settings-input {
+  max-width: 400px;
+}
+
+.settings-panel-body .settings-hint {
+  flex: 1;
+  min-width: 160px;
+}
+
+.settings-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg-1);
+  transition: background 0.25s var(--ease);
+}
+
+.settings-panel-footer .settings-reset {
+  margin-right: auto;
+}
+
+/* ─── 顶部视图切换（程序 / 配置） ─────────────────────────────────────── */
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 18px 0;
+  flex-shrink: 0;
+}
+
+.settings-tab-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: var(--bg-2);
+  color: var(--text-1);
+  padding: 7px 24px;
+  border-radius: 9px 9px 0 0;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.18s var(--ease);
+}
+
+.settings-tab-btn:hover {
+  color: var(--text-0);
+  background: var(--bg-3);
+}
+
+.settings-tab-btn.active {
+  color: var(--accent);
+  border-color: var(--border);
+  border-bottom-color: var(--bg-0);
+  background: var(--bg-0);
+  font-weight: 600;
+}
+
+/* 配置视图里的内联小组件行 */
+.settings-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.settings-inline .modal-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-inline .modal-input.num {
+  flex: 0 0 84px;
+}
+
+.settings-subsection {
+  margin-left: 12px;
+  border-left: 2px solid var(--border);
+  padding-left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
