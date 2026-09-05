@@ -70,6 +70,35 @@ func PostThreadQuit(threadID uint32) error {
 	return nil
 }
 
+// CleanupTrayClass 清理 systray 库注册失败后残留的窗口类/隐藏窗口。
+// 库的 initInstance 在 RegisterClassEx 之后的调用失败时直接早退：
+// 类已注册（且窗口可能已创建）但没有清理，后续重试会一直报
+// "Class already exists"。处理：有残留窗口→投递 WM_CLOSE（库的
+// wndProc 会 DestroyWindow + UnregisterClass）；无窗口→直接 UnregisterClass。
+func CleanupTrayClass() (bool, error) {
+	cls, err := windows.UTF16PtrFromString("SystrayClass")
+	if err != nil {
+		return false, err
+	}
+	hwnd, _, _ := procFindWindowW.Call(uintptr(unsafe.Pointer(cls)), 0)
+	if hwnd != 0 {
+		procPostMessage := user32.NewProc("PostMessageW")
+		const WM_CLOSE = 0x0010
+		res, _, err := procPostMessage.Call(hwnd, WM_CLOSE, 0, 0)
+		if res == 0 {
+			return false, err
+		}
+		return true, nil
+	}
+	procUnregisterClass := user32.NewProc("UnregisterClassW")
+	inst, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetModuleHandleW").Call(0)
+	res, _, err := procUnregisterClass.Call(uintptr(unsafe.Pointer(cls)), inst)
+	if res == 0 {
+		return false, err
+	}
+	return true, nil
+}
+
 // IsAdmin 报告当前进程是否以管理员（UAC 提权）身份运行。
 func IsAdmin() bool {
 	return windows.GetCurrentProcessToken().IsElevated()

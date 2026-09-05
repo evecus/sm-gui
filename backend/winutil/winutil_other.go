@@ -15,6 +15,8 @@ func CurrentThreadID() uint32 { return 0 }
 
 func PostThreadQuit(threadID uint32) error { return nil }
 
+func CleanupTrayClass() (bool, error) { return true, nil }
+
 func LaunchElevated(exe, args string) error {
 	return errNotSupported()
 }

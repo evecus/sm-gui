@@ -63,9 +63,10 @@ func setupTray(ctx context.Context) {
 		// 注册失败自愈：registerSystray 中任一 Win32 调用失败时，库只往
 		// stderr 打一行日志就早退，nativeLoop 照样空转（图标空白、点击无响应、
 		// ready 永不触发）。看门狗检测 ready 超时后向托盘线程投递 WM_QUIT，
-		// 让 Run 返回并重试注册。
+		// 让 Run 返回；清理残留的窗口类后再重试注册
+		//（登录会话初始化竞态，kolide/launcher#1241 同案例）。
 		tid := winutil.CurrentThreadID()
-		for attempt := 1; attempt <= 3; attempt++ {
+		for attempt := 1; attempt <= 5; attempt++ {
 			trayReady.Store(false)
 			trayLog("systray.Run start (attempt %d)", attempt)
 			watchdog := time.AfterFunc(10*time.Second, func() {
@@ -83,7 +84,11 @@ func setupTray(ctx context.Context) {
 			if trayQuitting.Load() {
 				return
 			}
-			time.Sleep(2 * time.Second)
+			// 清理残留的窗口类/隐藏窗口，否则重试必然报 "Class already exists"
+			if ok, err := winutil.CleanupTrayClass(); !ok {
+				trayLog("CleanupTrayClass 失败: %v", err)
+			}
+			time.Sleep(time.Duration(attempt) * 2 * time.Second)
 		}
 		trayLog("托盘重试次数用尽，放弃")
 	}()
